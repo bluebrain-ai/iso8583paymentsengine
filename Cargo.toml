@@ -1,0 +1,15 @@
+[workspace]
+members = [
+    "ISO8583PaymentEngine/switch-core",
+    "ISO8583PaymentEngine/edge-ingress",
+    "ISO8583PaymentEngine/edge-egress",
+    "ISO8583PaymentEngine/iso-dialect",
+    "ISO8583PaymentEngine/iso-parser",
+    "ISO8583PaymentEngine/hsm-client",
+    "ISO8583PaymentEngine/payment-daemon",
+    "ISO8583PaymentEngine/payment-proto",
+    "ISO8583PaymentSimulator",
+    "ISO8583PaymentSimulator/mock-bank-node",
+    "ops-control-plane"
+]
+resolver = "2"
