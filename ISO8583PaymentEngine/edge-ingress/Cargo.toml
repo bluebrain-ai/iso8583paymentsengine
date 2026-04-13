@@ -1,0 +1,18 @@
+[package]
+name = "edge-ingress"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+bytes = "1.0"
+crossbeam = "0.8"
+iso-parser = { path = "../iso-parser" }
+iso-dialect = { path = "../iso-dialect" }
+payment-proto = { path = "../payment-proto" }
+futures = "0.3"
+switch-core = { path = "../switch-core" }
+metrics = "0.21"
+tracing = "0.1"
+uuid = { version = "1.0", features = ["v4"] }

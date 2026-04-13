@@ -1,0 +1,63 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling switch-core v0.1.0 (D:\cob2java\GitHub\ISOPaymentEngine\ISO8583PaymentEngine\switch-core)
+warning: function `read_lllvar` is never used
+  --> D:\cob2java\GitHub\ISOPaymentEngine\ISO8583PaymentEngine\iso-dialect\src\lib.rs:61:4
+   |
+61 | fn read_lllvar<'a>(data: &'a [u8], offset: &mut usize) -> Result<&'a [u8], ParseError> {
+   |    ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `iso-dialect` (lib) generated 1 warning
+warning: unused import: `payment_proto::Transaction`
+ --> D:\cob2java\GitHub\ISOPaymentEngine\ISO8583PaymentEngine\switch-core\src\context.rs:1:5
+  |
+1 | use payment_proto::Transaction;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Mutex`
+ --> D:\cob2java\GitHub\ISOPaymentEngine\ISO8583PaymentEngine\switch-core\src\engine.rs:8:22
+  |
+8 | use std::sync::{Arc, Mutex};
+  |                      ^^^^^
+
+warning: unused import: `payment_proto::Transaction`
+ --> D:\cob2java\GitHub\ISOPaymentEngine\ISO8583PaymentEngine\switch-core\src\lib.rs:6:5
+  |
+6 | use payment_proto::Transaction;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+   Compiling edge-ingress v0.1.0 (D:\cob2java\GitHub\ISOPaymentEngine\ISO8583PaymentEngine\edge-ingress)
+warning: `switch-core` (lib) generated 3 warnings (run `cargo fix --lib -p switch-core` to apply 3 suggestions)
+warning: unused import: `payment_proto::Transaction`
+ --> D:\cob2java\GitHub\ISOPaymentEngine\ISO8583PaymentEngine\edge-ingress\src\server.rs:4:5
+  |
+4 | use payment_proto::Transaction;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `edge-ingress` (lib) generated 1 warning (run `cargo fix --lib -p edge-ingress` to apply 1 suggestion)
+   Compiling mock-bank-node v0.1.0 (D:\cob2java\GitHub\ISOPaymentEngine\ISO8583PaymentSimulator\mock-bank-node)
+warning: unused variable: `dialect`
+  --> mock-bank-node\src\main.rs:75:29
+   |
+75 |                         let dialect = DialectRouter::Base24(Base24Dialect);
+   |                             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dialect`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `dialect`
+  --> mock-bank-node\src\main.rs:23:29
+   |
+23 |                         let dialect = DialectRouter::Connex(ConnexDialect);
+   |                             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dialect`
+
+warning: `mock-bank-node` (bin "mock-bank-node") generated 2 warnings (run `cargo fix --bin "mock-bank-node" -p mock-bank-node` to apply 2 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.68s
+     Running `target\debug\mock-bank-node.exe`
+error: process didn't exit successfully: `target\debug\mock-bank-node.exe` (exit code: 0xffffffff)

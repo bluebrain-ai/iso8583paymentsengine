@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ISO-8583 Operations Matrix</title>
+
+  <!-- React 18 via CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+
+  <!-- JSX transformer (Babel standalone) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- TailwindCSS via CDN for identical aesthetic mirroring -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Lucide Icons Native SVG API -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+
+  <style>
+    body { font-family: 'Inter', sans-serif; background: #0a0a0a; color: #e5e7eb; }
+    .glass {
+      background: rgba(18, 18, 18, 0.7);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // Component to render native Lucide SVGs without the React library binding
+    function Icon({ name, className }) {
+      const ref = useRef(null);
+      useEffect(() => {
+        if (ref.current && window.lucide) {
+          window.lucide.createIcons({
+            icons: { [name]: window.lucide.icons[name] },
+            nameAttr: 'data-lucide',
+            attrs: { class: className }
+          });
+        }
+      }, [name, className]);
+      return <i ref={ref} data-lucide={name}></i>;
+    }
+
+    function App() {
+      const [publishingCrdb, setPublishingCrdb] = useState(false);
+      const [publishingStip, setPublishingStip] = useState(false);
+      const [publishingRoutes, setPublishingRoutes] = useState(false);
+      const [toast, setToast] = useState(null);
+      const [crdbRecords, setCrdbRecords] = useState([]);
+      const [stipRules, setStipRules] = useState([]);
+      const [routingRules, setRoutingRules] = useState([]);
+      const [loading, setLoading] = useState(true);
+
+      const [showModal, setShowModal] = useState(false);
+      const [newRoute, setNewRoute] = useState({ bin_prefix: '', destination_type: 'ExternalNode', target_node: 'MockVisaNode', failover_node: '' });
+
+      const fetchState = async () => {
+        setLoading(true);
+        try {
+          const [crdbRes, stipRes, routesRes] = await Promise.all([
+            fetch("http://127.0.0.1:3003/api/crdb").catch(() => null),
+            fetch("http://127.0.0.1:3003/api/stip").catch(() => null),
+            fetch("http://127.0.0.1:3003/api/routes").catch(() => null),
+          ]);
+          
+          if (crdbRes && crdbRes.ok) setCrdbRecords(await crdbRes.json());
+          if (stipRes && stipRes.ok) setStipRules(await stipRes.json());
+          if (routesRes && routesRes.ok) setRoutingRules(await routesRes.json());
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleAddRoute = async (e) => {
+        e.preventDefault();
+        try {
+          const payload = {
+            bin_prefix: newRoute.bin_prefix,
+            destination_type: newRoute.destination_type,
+            target_node: newRoute.destination_type === 'ExternalNode' ? newRoute.target_node : null,
+            failover_node: newRoute.failover_node || null
+          };
+          const res = await fetch("http://127.0.0.1:3003/api/routes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          if (res.ok) {
+            setToast({ message: "Routing Rule Temporally Stored", type: "success" });
+            fetchState();
+            setShowModal(false);
+          }
+        } catch (e) {
+          setToast({ message: "Failed to create rule", type: "error" });
+        }
+        setTimeout(() => setToast(null), 3000);
+      };
+
+      useEffect(() => {
+        fetchState();
+      }, []);
+
+      const handlePublish = async (type, setPublishing) => {
+        setPublishing(true);
+        try {
+          const res = await fetch(`http://127.0.0.1:3003/api/publish/${type}`, { method: "POST" });
+          if (res.ok) {
+            setToast({ message: `Live Switch Memory Pointer Swapped for ${type.toUpperCase()}`, type: "success" });
+          } else {
+            setToast({ message: `Failed to allocate pipeline cache pointer swap for ${type.toUpperCase()}`, type: "error" });
+          }
+        } catch (err) {
+          setToast({ message: "Gateway Offline", type: "error" });
+        }
+        setPublishing(false);
+        setTimeout(() => setToast(null), 5000);
+      };
+
+      return (
+        <div className="min-h-screen bg-[#0a0a0a] text-gray-200 p-8 font-sans selection:bg-red-900/30">
+          {toast && (
+            <div className={`fixed top-6 right-6 flex items-center gap-3 px-6 py-4 rounded-lg shadow-2xl transition-all z-50 ${toast.type === "success" ? "bg-green-900/40 border border-green-500/50 text-green-100" : "bg-red-900/40 border border-red-500/50 text-red-100"}`}>
+              {toast.type === "success" ? <Icon name="CheckCircle2" className="w-5 h-5 text-green-400" /> : <Icon name="ShieldAlert" className="w-5 h-5 text-red-400" />}
+              <span className="font-medium tracking-wide">{toast.message}</span>
+            </div>
+          )}
+
+          <header className="mb-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-red-900/20 text-red-500 rounded-xl border border-red-900/30 flex-shrink-0">
+                <Icon name="Activity" className="w-8 h-8 animate-pulse" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-100 to-gray-400 bg-clip-text text-transparent transform tracking-tight">ISO-8583 Operations Matrix</h1>
+                <p className="text-gray-500 flex items-center gap-2 text-sm mt-1">
+                  <Icon name="Database" className="w-4 h-4" /> SQLite Source of Truth &bull; Domain 2 Control Plane
+                </p>
+              </div>
+            </div>
+          </header>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <section className="glass rounded-2xl p-6 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-600/50 to-transparent" />
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                  <Icon name="CheckCircle2" className="w-5 h-5 text-gray-400" /> Active Switch Rules
+                </h2>
+                <button onClick={() => setShowModal(true)} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-sm border border-white/10 transition-colors flex items-center gap-2">
+                  <Icon name="Plus" className="w-4 h-4" /> Add Route
+                </button>
+              </div>
+              
+              <div className="space-y-6">
+                <div className="bg-[#121212] border border-white/5 rounded-xl p-5">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">Global Routing Matrix (Radix Trie Lookups)</h3>
+                    <button 
+                      onClick={() => handlePublish('routes', setPublishingRoutes)}
+                      disabled={publishingRoutes}
+                      className="px-3 py-1.5 bg-red-900/30 hover:bg-red-800/40 text-red-100 rounded-lg border border-red-500/30 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50"
+                    >
+                      {publishingRoutes ? <Icon name="RotateCcw" className="w-3 h-3 animate-spin" /> : <Icon name="Cpu" className="w-3 h-3" />}
+                      Publish Live
+                    </button>
+                  </div>
+                  {loading ? (
+                    <div className="animate-pulse h-12 bg-white/5 rounded-lg" />
+                  ) : routingRules.length === 0 ? (
+                    <div className="text-center text-sm text-gray-500 py-4">No active routing rules found.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-gray-500 uppercase bg-[#181818]">
+                          <tr>
+                            <th className="px-4 py-3 rounded-l-lg">BIN Prefix</th>
+                            <th className="px-4 py-3">Destination</th>
+                            <th className="px-4 py-3">Target Node</th>
+                            <th className="px-4 py-3 rounded-r-lg">Failover</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {routingRules.map((r) => (
+                            <tr key={r.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                              <td className="px-4 py-3 font-mono text-gray-300 font-bold tracking-wider">{r.bin_prefix}</td>
+                              <td className="px-4 py-3">
+                                <span className={`px-2 py-1 flex items-center max-w-max gap-1 !bg-transparent !p-0`}>
+                                  {r.destination_type === 'InternalCrdb' ? <Icon name="Database" className="w-3 h-3 text-blue-400" /> : <Icon name="Network" className="w-3 h-3 text-purple-400" />}
+                                  {r.destination_type}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 font-mono text-gray-400">{r.target_node || 'N/A'}</td>
+                              <td className="px-4 py-3 font-mono text-red-400/80">{r.failover_node || 'None'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                <div className="bg-[#121212] border border-white/5 rounded-xl p-5">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">CRDB (Card Records)</h3>
+                    <button 
+                      onClick={() => handlePublish('crdb', setPublishingCrdb)}
+                      disabled={publishingCrdb}
+                      className="px-3 py-1.5 bg-red-900/30 hover:bg-red-800/40 text-red-100 rounded-lg border border-red-500/30 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50"
+                    >
+                      {publishingCrdb ? <Icon name="RotateCcw" className="w-3 h-3 animate-spin" /> : <Icon name="Cpu" className="w-3 h-3" />}
+                      Publish Live
+                    </button>
+                  </div>
+                  {loading ? (
+                    <div className="animate-pulse h-12 bg-white/5 rounded-lg" />
+                  ) : crdbRecords.length === 0 ? (
+                    <div className="text-center text-sm text-gray-500 py-4">No active CRDB records found.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-gray-500 uppercase bg-[#181818]">
+                          <tr>
+                            <th className="px-4 py-3 rounded-l-lg">PAN Hash</th>
+                            <th className="px-4 py-3">Status</th>
+                            <th className="px-4 py-3 rounded-r-lg">Limit</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {crdbRecords.map((r) => (
+                            <tr key={r.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                              <td className="px-4 py-3 font-mono text-gray-300">{r.pan_hash?.substring(0, 16)}...</td>
+                              <td className="px-4 py-3">
+                                <span className={`px-2 py-1 rounded-full text-xs ${r.status === 'Active' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
+                                  {r.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-gray-300">${(r.daily_limit / 100).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-[#121212] border border-white/5 rounded-xl p-5">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">STIP (Stand-in Processing)</h3>
+                    <button 
+                      onClick={() => handlePublish('stip', setPublishingStip)}
+                      disabled={publishingStip}
+                      className="px-3 py-1.5 bg-red-900/30 hover:bg-red-800/40 text-red-100 rounded-lg border border-red-500/30 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50"
+                    >
+                      {publishingStip ? <Icon name="RotateCcw" className="w-3 h-3 animate-spin" /> : <Icon name="Cpu" className="w-3 h-3" />}
+                      Publish Live
+                    </button>
+                  </div>
+                  {loading ? (
+                    <div className="animate-pulse h-12 bg-white/5 rounded-lg" />
+                  ) : stipRules.length === 0 ? (
+                    <div className="text-center text-sm text-gray-500 py-4">No active STIP rules found.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-gray-500 uppercase bg-[#181818]">
+                          <tr>
+                            <th className="px-4 py-3 rounded-l-lg">Network ID</th>
+                            <th className="px-4 py-3">Condition</th>
+                            <th className="px-4 py-3 rounded-r-lg">Max Approval</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {stipRules.map((r) => (
+                            <tr key={r.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                              <td className="px-4 py-3 font-medium text-gray-300">{r.network_id}</td>
+                              <td className="px-4 py-3 text-gray-400">{r.condition_type}</td>
+                              <td className="px-4 py-3 text-amber-400/90 font-mono">${(r.max_approval_amount / 100).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <section className="glass rounded-2xl p-6 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-gray-600/50 to-transparent" />
+              <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
+                <Icon name="RotateCcw" className="w-5 h-5 text-gray-400" /> Temporal Audit Log
+              </h2>
+
+              <div className="space-y-4">
+                {loading ? (
+                  [1, 2, 3].map(i => <div key={i} className="animate-pulse h-20 bg-white/5 rounded-xl" />)
+                ) : [...crdbRecords, ...stipRules, ...routingRules].length === 0 ? (
+                  <div className="text-center text-sm text-gray-500 py-10">No history available in temporal database.</div>
+                ) : (
+                  [...crdbRecords, ...stipRules, ...routingRules].sort((a, b) => new Date(b.valid_from).getTime() - new Date(a.valid_from).getTime()).map((r, index) => (
+                    <div key={`${r.network_id ? 'stip' : (r.pan_hash ? 'crdb' : 'route')}-${r.id}-${index}`} className="bg-[#121212] flex flex-col sm:flex-row items-center justify-between p-4 rounded-xl border border-white/5 group hover:border-white/10 transition-colors">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-full bg-gray-900 flex items-center justify-center border border-gray-800">
+                          <span className="text-xs font-bold text-gray-500">v{r.version}</span>
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-gray-200">{r.pan_hash ? "CRDB Limit Updated" : (r.network_id ? "STIP Edge Adjusted" : "Routing Prefix Matrix Mapping")}</span>
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-blue-900/30 text-blue-400 border border-blue-900/50">
+                              {r.is_live ? "LIVE" : "HISTORICAL"}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1 font-mono">
+                            {r.pan_hash ? r.pan_hash.substring(0, 16) + "..." : (r.network_id ? r.network_id + " - " + r.condition_type : 'BIN ' + r.bin_prefix + ' -> ' + r.destination_type)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-4 sm:mt-0 text-right">
+                        <div className="text-sm text-gray-400 flex items-center gap-1 justify-end">
+                           Valid From: <span className="text-gray-300 ml-1">{new Date(r.valid_from).toLocaleTimeString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          </div>
+
+          {showModal && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-[#121212] border border-white/10 w-full max-w-md rounded-2xl p-6 shadow-2xl relative">
+                <button onClick={() => setShowModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors">
+                  <Icon name="X" className="w-5 h-5" />
+                </button>
+                <h3 className="text-xl font-semibold mb-6 flex items-center gap-2 text-white">
+                  <Icon name="GitMerge" className="w-5 h-5 text-gray-400" /> Matrix Route Provisioning
+                </h3>
+                
+                <form onSubmit={handleAddRoute} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">BIN Prefix (e.g. 4, 5, 4111)</label>
+                    <input type="text" required value={newRoute.bin_prefix} onChange={e => setNewRoute({...newRoute, bin_prefix: e.target.value})} className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-gray-200 focus:border-red-500 outline-none transition-colors" placeholder="e.g. 411122" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Destination Execution Layer</label>
+                    <select value={newRoute.destination_type} onChange={e => setNewRoute({...newRoute, destination_type: e.target.value})} className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-gray-200 focus:border-red-500 outline-none transition-colors">
+                      <option value="ExternalNode">External Upstream TCP Node</option>
+                      <option value="InternalCrdb">Internal Memory CRDB Domain</option>
+                    </select>
+                  </div>
+                  {newRoute.destination_type === 'ExternalNode' && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Primary Node ID</label>
+                        <input type="text" required value={newRoute.target_node} onChange={e => setNewRoute({...newRoute, target_node: e.target.value})} className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-gray-200 focus:border-red-500 outline-none transition-colors" placeholder="e.g. MockVisaNode" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Failover Secondary Node ID (Optional)</label>
+                        <input type="text" value={newRoute.failover_node} onChange={e => setNewRoute({...newRoute, failover_node: e.target.value})} className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-gray-200 focus:border-red-500 outline-none transition-colors" placeholder="e.g. FallbackMastercardNode" />
+                      </div>
+                    </>
+                  )}
+                  <div className="pt-2">
+                    <button type="submit" className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 active:scale-[0.98] transition-all">
+                      <Icon name="Save" className="w-4 h-4" /> Save Temporal Route Definition
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IsoSwitch — Payment Command Center v2</title>
+
+  <!-- React 18 via CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+  <!-- JSX transformer (Babel standalone) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #060b18;
+      --surface:  #0c1222;
+      --surface2: #111827;
+      --border:   #1e2d45;
+      --border2:  #243347;
+      --text:     #cbd5e1;
+      --muted:    #475569;
+      --dim:      #1e293b;
+      --cyan:     #06b6d4;
+      --emerald:  #10b981;
+      --amber:    #f59e0b;
+      --red:      #ef4444;
+      --indigo:   #818cf8;
+      --purple:   #a78bfa;
+    }
+
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; font-size: 13px; overflow: hidden; }
+    #root { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: var(--surface); }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+    /* Layout */
+    .app { display: flex; flex-direction: column; height: 100vh; padding: 10px 12px; gap: 8px; overflow: hidden; }
+    .header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .row { display: grid; gap: 8px; flex-shrink: 0; }
+    .row-top    { grid-template-columns: 3fr 5fr 4fr; height: 260px; }
+    .row-bottom { grid-template-columns: 3fr 6fr 3fr; flex: 1; min-height: 0; }
+
+    /* Card */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; }
+    .card-header { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .card-body { flex: 1; overflow-y: auto; min-height: 0; }
+    .card-title { font-weight: 600; font-size: 12.5px; color: #e2e8f0; display: flex; align-items: center; gap: 6px; }
+
+    /* Forms */
+    input[type=number], input[type=text] {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border2);
+      border-radius: 6px; padding: 6px 10px; color: var(--text); font-family: inherit;
+      font-size: 12px; outline: none; transition: border-color 0.15s;
+    }
+    input:focus { border-color: var(--cyan); }
+    input:disabled { opacity: 0.4; cursor: not-allowed; }
+    input[type=range] { width: 100%; cursor: pointer; accent-color: var(--cyan); }
+
+    /* Buttons */
+    .btn { display: flex; align-items: center; justify-content: center; gap: 6px; border: none; border-radius: 7px; padding: 8px 14px; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .btn-primary { background: var(--cyan); color: #fff; }
+    .btn-primary:hover { background: #0891b2; }
+    .btn-primary:disabled { background: var(--dim); color: var(--muted); cursor: not-allowed; }
+    .btn-danger  { background: #450a0a; color: var(--red); border: 1px solid #7f1d1d; }
+    .btn-danger:hover { background: #7f1d1d; }
+    .btn-sm { padding: 5px 10px; }
+
+    /* Badges */
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; border: 1px solid; }
+    .badge-live    { color: var(--emerald); background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.3); }
+    .badge-done    { color: var(--muted);   background: var(--surface2);       border-color: var(--border2); }
+    .badge-system  { color: var(--muted);   background: transparent;            border-color: var(--border2); }
+    .dot-pulse { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: pulse 1.5s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    /* Progress bar */
+    .progress { height: 4px; background: var(--dim); border-radius: 2px; overflow: hidden; }
+    .progress-bar { height: 100%; border-radius: 2px; transition: width 0.5s ease; background: var(--cyan); }
+
+    /* Stat grid */
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+    .stat-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 3px; display: flex; align-items: center; gap: 4px; }
+    .stat-value { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 14px; }
+
+    /* Transaction table */
+    .tx-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .tx-table th { position: sticky; top: 0; background: var(--surface); padding: 7px 10px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); z-index: 1; }
+    .tx-table td { padding: 6px 10px; border-bottom: 1px solid rgba(30,45,69,0.5); white-space: nowrap; }
+    .tx-table tr { cursor: pointer; transition: background 0.1s; }
+    .tx-table tr:hover td { background: rgba(30,45,69,0.4); }
+    .tx-table tr.selected td { background: rgba(30,45,69,0.8); }
+
+    /* Status colors */
+    .c-success { color: var(--emerald); }
+    .c-timeout  { color: var(--amber);  }
+    .c-decline  { color: var(--red);    }
+    .c-cyan     { color: var(--cyan);   }
+    .c-indigo   { color: var(--indigo); }
+    .c-muted    { color: var(--muted);  }
+    .c-purple   { color: var(--purple); }
+
+    /* Code blocks */
+    .code-block { background: #020817; border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 10px; word-break: break-all; line-height: 1.6; }
+
+    /* Inspector field */
+    .field-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 3px; font-weight: 600; }
+    .field-value { font-size: 12px; color: var(--text); margin-bottom: 12px; }
+
+    /* Distribution bar */
+    .dist-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; gap: 1px; background: var(--dim); }
+    .dist-bar-seg { height: 100%; transition: width 0.5s ease; }
+
+    /* Spinner */
+    .spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.15); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Node graph */
+    .topo-node { transition: all 0.25s ease; }
+    .topo-line { transition: all 0.25s ease; }
+
+    /* Journal row */
+    .journal-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-radius: 5px; background: var(--surface2); border: 1px solid var(--border); margin-bottom: 5px; }
+
+    /* Util */
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .flex { display: flex; } .flex-col { flex-direction: column; }
+    .items-center { align-items: center; }
+    .gap-4 { gap: 4px; } .gap-6 { gap: 6px; } .gap-8 { gap: 8px; }
+    .p-4  { padding: 4px; }
+    .mb-6 { margin-bottom: 6px; }
+    .mt-auto { margin-top: auto; }
+    .w-full { width: 100%; }
+    .ml-auto { margin-left: auto; }
+    .text-right { text-align: right; }
+    .small { font-size: 10px; }
+    .bold { font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+    const API = '';  // same origin — port 3001
+
+    // ============================================================
+    // usePoll — self-contained polling hook with AbortController
+    // If previous fetch is still pending, the next tick is skipped.
+    // This prevents connection pool exhaustion under any load.
+    // ============================================================
+    function usePoll(url, intervalMs = 1000) {
+      const [data, setData] = useState(null);
+      const pendingRef = useRef(false);
+
+      useEffect(() => {
+        let alive = true;
+
+        async function tick() {
+          if (pendingRef.current) return;          // skip if still waiting
+          pendingRef.current = true;
+          const ctrl  = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 2000);
+          try {
+            const r = await fetch(API + url, { signal: ctrl.signal });
+            clearTimeout(timer);
+            if (alive && r.ok) setData(await r.json());
+          } catch {
+            clearTimeout(timer);
+          } finally {
+            pendingRef.current = false;
+          }
+        }
+
+        tick();
+        const id = setInterval(tick, intervalMs);
+        return () => { alive = false; clearInterval(id); };
+      }, [url, intervalMs]);
+
+      return data;
+    }
+
+    // ============================================================
+    // SVG Sparkline — no recharts, no ResizeObserver
+    // ============================================================
+    function Sparkline({ values, stroke, label, unit }) {
+      const W = 300, H = 52;
+      const max = Math.max(...values, 1);
+      const pts = values.map((v, i) => {
+        const x = (i / (values.length - 1)) * W;
+        const y = H - (v / max) * H * 0.85;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+      const cur = values[values.length - 1] ?? 0;
+      const areaBase = `${(values.length-1)/(values.length-1)*W},${H} 0,${H}`;
+
+      return (
+        <div style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', fontWeight: 600 }}>{label}</span>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 18, color: stroke }}>
+              {cur.toLocaleString()}<span style={{ fontSize: 10, color: 'var(--muted)', marginLeft: 2 }}>{unit}</span>
+            </span>
+          </div>
+          <div style={{ flex: 1, position: 'relative', minHeight: 40 }}>
+            <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }} preserveAspectRatio="none">
+              <defs>
+                <linearGradient id={`g${label}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%"   stopColor={stroke} stopOpacity="0.35" />
+                  <stop offset="100%" stopColor={stroke} stopOpacity="0"    />
+                </linearGradient>
+              </defs>
+              {values.length > 1 && (
+                <>
+                  <polygon points={`${pts} ${areaBase}`} fill={`url(#g${label})`} />
+                  <polyline points={pts} fill="none" stroke={stroke} strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
+                  <circle cx={(values.length-1)/(values.length-1)*W} cy={H - (values[values.length-1]/max)*H*0.85} r="3" fill={stroke} vectorEffect="non-scaling-stroke" />
+                </>
+              )}
+            </svg>
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // ControlPanel — fully self-contained, no shared state
+    // ============================================================
+    function ControlPanel() {
+      const [volume, setVolume]     = useState(1000);
+      const [concur, setConcur]     = useState(20);
+      const [happy,  setHappy]      = useState(80);
+      const [tout,   setTout]       = useState(10);
+      const [decl,   setDecl]       = useState(10);
+      const [err,    setErr]        = useState(null);
+      const status = usePoll('/sim/status', 800);
+      const isRunning = status?.running ?? false;
+      const progress  = (isRunning && status?.totalTarget > 0)
+        ? (status.completed / status.totalTarget) * 100 : 0;
+
+      const start = async () => {
+        setErr(null);
+        const tot = (happy + tout + decl) || 1;
+        const r = await fetch('/sim/start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ volume, concurrency: concur, dist: { happy: happy/tot, timeout: tout/tot, decline: decl/tot } }),
+        });
+        if (!r.ok) setErr((await r.json()).error ?? 'Failed');
+      };
+
+      const cancel = () => fetch('/sim/cancel', { method: 'POST' });
+
+      const SliderRow = ({ label, val, set, color }) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 10, color, width: 44, flexShrink: 0 }}>{label}</span>
+          <input type="range" min={0} max={100} value={val} disabled={isRunning}
+            onChange={e => set(Number(e.target.value))}
+            style={{ flex: 1, accentColor: color }} />
+          <span className="mono" style={{ fontSize: 10, color: 'var(--muted)', width: 30, textAlign: 'right' }}>{val}%</span>
+        </div>
+      );
+
+      return (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              Load Generator
+            </span>
+            {isRunning && status && (
+              <span className="mono" style={{ fontSize: 10, color: 'var(--cyan)', background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.25)', borderRadius: 4, padding: '2px 7px' }}>
+                {status.completed.toLocaleString()} / {status.totalTarget.toLocaleString()}
+              </span>
+            )}
+          </div>
+          <div className="card-body" style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10, overflow: 'hidden' }}>
+            {/* Progress bar */}
+            <div className="progress">
+              <div className="progress-bar" style={{ width: `${progress}%`, background: isRunning ? 'var(--cyan)' : 'var(--dim)' }} />
+            </div>
+
+            {/* Volume + Concurrency */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div>
+                <div className="field-label" style={{ marginBottom: 4 }}>Volume</div>
+                <input type="number" value={volume} min={1} disabled={isRunning}
+                  onChange={e => setVolume(Math.max(1, Number(e.target.value)))} />
+              </div>
+              <div>
+                <div className="field-label" style={{ marginBottom: 4 }}>Concurrency</div>
+                <input type="number" value={concur} min={1} disabled={isRunning}
+                  onChange={e => setConcur(Math.max(1, Number(e.target.value)))} />
+              </div>
+            </div>
+
+            {/* Distribution */}
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              <div className="field-label" style={{ marginBottom: 8 }}>Traffic Distribution</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <SliderRow label="Happy"   val={happy} set={setHappy} color="var(--emerald)" />
+                <SliderRow label="Timeout" val={tout}  set={setTout}  color="var(--amber)"   />
+                <SliderRow label="Decline" val={decl}  set={setDecl}  color="var(--red)"     />
+              </div>
+            </div>
+
+            {/* Live TPS badge */}
+            {isRunning && status && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px' }}>
+                <span style={{ fontSize: 10, color: 'var(--muted)' }}>Live TPS</span>
+                <span className="mono bold c-cyan">{status.tps}</span>
+              </div>
+            )}
+
+            {err && <div style={{ fontSize: 10, color: 'var(--red)', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 5, padding: '6px 10px' }}>{err}</div>}
+
+            {/* Buttons */}
+            <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+              {isRunning && (
+                <button className="btn btn-danger" onClick={cancel} style={{ padding: '8px 12px' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                </button>
+              )}
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={start} disabled={isRunning}>
+                {isRunning
+                  ? <><div className="spinner" /><span>Running...</span></>
+                  : <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg><span>Deploy Load Test</span></>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // TopologyFlow — polls /sim/pulses @ 250ms, SVG-based
+    // ============================================================
+    function TopologyFlow() {
+      const pulses = usePoll('/sim/pulses', 250) ?? [];
+
+      const NODES = [
+        { id: 'terminal', label: 'POS',  sub: 'Terminal'   },
+        { id: 'ingress',  label: 'API',  sub: 'Ingress GW' },
+        { id: 'core',     label: 'CPU',  sub: 'Core'       },
+        { id: 'hsm',      label: 'HSM',  sub: 'Thales Mock' },
+        { id: 'egress',   label: 'OUT',  sub: 'Egress GW'  },
+        { id: 'bank',     label: 'BANK', sub: 'Mock Bank'  },
+      ];
+      const W_SVG = 700, CY = 72, R = 30;
+      const nodeX = NODES.map((_, i) => 60 + i * ((W_SVG - 120) / (NODES.length - 1)));
+
+      const nodeMap = {};
+      for (const p of pulses) {
+        if (!nodeMap[p.currentNode]) nodeMap[p.currentNode] = { req: 0, res: 0, rev: 0 };
+        nodeMap[p.currentNode][p.phase]++;
+      }
+
+      return (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--indigo)" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="5" r="3"/><circle cx="19" cy="19" r="3"/><circle cx="5"  cy="19" r="3"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="12" x2="19" y2="16"/><line x1="12" y1="12" x2="5"  y2="16"/></svg>
+              Network Topology
+            </span>
+            <span style={{ fontSize: 10, color: 'var(--muted)' }} className="mono">{pulses.length} active</span>
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '8px 12px' }}>
+            <svg viewBox={`0 0 ${W_SVG} 145`} style={{ width: '100%', flex: 1 }} preserveAspectRatio="xMidYMid meet">
+              {/* Connector rails */}
+              {NODES.slice(0, -1).map((_, i) => (
+                <line key={i}
+                  x1={nodeX[i] + R} y1={CY} x2={nodeX[i+1] - R} y2={CY}
+                  stroke="var(--border2)" strokeWidth="2" strokeDasharray="4 3" />
+              ))}
+
+              {/* Nodes */}
+              {NODES.map((node, i) => {
+                const act    = nodeMap[node.id] ?? {};
+                const hasReq = act.req > 0;
+                const hasRes = act.res > 0;
+                const hasRev = act.rev > 0;
+                const count  = (act.req || 0) + (act.res || 0) + (act.rev || 0);
+
+                let stroke = 'var(--border2)', fill = 'var(--surface2)', glow = '';
+                if      (hasRev) { stroke = 'var(--red)';     fill = '#1a0a0a'; glow = 'drop-shadow(0 0 10px rgba(239,68,68,0.7))';   }
+                else if (hasRes) { stroke = 'var(--emerald)';  fill = '#031a13'; glow = 'drop-shadow(0 0 10px rgba(16,185,129,0.7))'; }
+                else if (hasReq) { stroke = 'var(--cyan)';     fill = '#031820'; glow = 'drop-shadow(0 0 10px rgba(6,182,212,0.7))';  }
+
+                return (
+                  <g key={node.id} style={{ filter: glow, transition: 'filter 0.2s' }}>
+                    {/* Pulse ring when active */}
+                    {count > 0 && (
+                      <circle cx={nodeX[i]} cy={CY} r={R + 8} fill="none" stroke={stroke} strokeWidth="1" strokeOpacity="0.3">
+                        <animate attributeName="r" from={R + 4} to={R + 16} dur="1.5s" repeatCount="indefinite" />
+                        <animate attributeName="stroke-opacity" from="0.4" to="0" dur="1.5s" repeatCount="indefinite" />
+                      </circle>
+                    )}
+                    <circle cx={nodeX[i]} cy={CY} r={R} fill={fill} stroke={stroke} strokeWidth="2" style={{ transition: 'all 0.25s' }} />
+                    <text x={nodeX[i]} y={CY - 5} textAnchor="middle" fontSize="10" fontWeight="bold" fill={stroke} fontFamily="'JetBrains Mono', monospace" style={{ transition: 'fill 0.25s' }}>
+                      {node.label}
+                    </text>
+                    {count > 0 && (
+                      <text x={nodeX[i]} y={CY + 9} textAnchor="middle" fontSize="8" fill={stroke} fontFamily="'JetBrains Mono', monospace">{count}</text>
+                    )}
+                    <text x={nodeX[i]} y={CY + R + 16} textAnchor="middle" fontSize="9" fill="var(--muted)" fontFamily="Inter, sans-serif">{node.sub}</text>
+                  </g>
+                );
+              })}
+            </svg>
+
+            {/* Legend */}
+            <div style={{ display: 'flex', gap: 14, justifyContent: 'center', fontSize: 9, color: 'var(--muted)', paddingBottom: 4 }}>
+              {[['var(--cyan)', 'Request'], ['var(--emerald)', 'Response'], ['var(--red)', 'Reversal']].map(([c, l]) => (
+                <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: c }} />{l}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // MetricsPanel — polls /sim/status @ 1s, custom SVG sparklines
+    // ============================================================
+    function MetricsPanel() {
+      const [tpsPoints,   setTpsPoints]   = useState(Array(40).fill(0));
+      const [latPoints,   setLatPoints]   = useState(Array(40).fill(0));
+      const latestRef = useRef({ tps: 0, latency: 0 });
+      const pendingRef = useRef(false);
+
+      useEffect(() => {
+        let alive = true;
+        const tick = async () => {
+          if (pendingRef.current) return;
+          pendingRef.current = true;
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 2000);
+          try {
+            const r = await fetch('/sim/status', { signal: ctrl.signal });
+            clearTimeout(timer);
+            if (alive && r.ok) {
+              const d = await r.json();
+              latestRef.current = { tps: d.tps ?? 0, latency: d.avgLatencyMs ?? 0 };
+              setTpsPoints(p => [...p.slice(1), d.tps ?? 0]);
+              setLatPoints(p => [...p.slice(1), d.avgLatencyMs ?? 0]);
+            }
+          } catch { clearTimeout(timer); } finally { pendingRef.current = false; }
+        };
+        tick();
+        const id = setInterval(tick, 1000);
+        return () => { alive = false; clearInterval(id); };
+      }, []);
+
+      return (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="2" strokeLinecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              Live Telemetry
+            </span>
+            <span style={{ fontSize: 9, color: 'var(--muted)' }}>1s refresh</span>
+          </div>
+          <div className="card-body" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Sparkline values={tpsPoints} stroke="var(--cyan)"    label="Throughput" unit="t/s" />
+            <Sparkline values={latPoints} stroke="var(--emerald)" label="Avg Latency" unit="ms"  />
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // ExecutionReport — polls /sim/status @ 500ms
+    // ============================================================
+    function ExecutionReport() {
+      const status = usePoll('/sim/status', 500);
+      const isRunning = status?.running ?? false;
+      const hasData   = !!(status && status.totalTarget > 0);
+      const s = status ?? {};
+
+      const progress   = hasData ? (s.completed / s.totalTarget) * 100 : 0;
+      const sP = s.completed > 0 ? (s.success / s.completed * 100) : 0;
+      const tP = s.completed > 0 ? (s.timeout / s.completed * 100) : 0;
+      const dP = s.completed > 0 ? (s.decline / s.completed * 100) : 0;
+
+      const STATS = hasData ? [
+        { label: 'Approved',  val: (s.success  ?? 0).toLocaleString(), color: 'var(--emerald)' },
+        { label: 'Timeout',   val: (s.timeout  ?? 0).toLocaleString(), color: 'var(--amber)'   },
+        { label: 'Declined',  val: (s.decline  ?? 0).toLocaleString(), color: 'var(--red)'     },
+        { label: 'In Flight', val: (s.inFlight ?? 0).toLocaleString(), color: 'var(--cyan)'    },
+        { label: 'TPS',       val: (s.tps ?? 0).toLocaleString(),      color: 'var(--indigo)'  },
+        { label: 'Avg RT',    val: `${s.avgLatencyMs ?? 0}ms`,         color: 'var(--muted)'   },
+      ] : [];
+
+      return (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--indigo)" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6"  y1="20" x2="6"  y2="14"/></svg>
+              Execution Report
+            </span>
+            {isRunning
+              ? <span className="badge badge-live"><span className="dot-pulse" />LIVE</span>
+              : hasData ? <span className="badge badge-done">DONE</span> : null}
+          </div>
+          <div className="card-body" style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {!hasData ? (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', gap: 6 }}>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.3"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                <span style={{ fontSize: 11 }}>No active test</span>
+              </div>
+            ) : (
+              <>
+                {/* Overall progress */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--muted)', marginBottom: 4 }}>
+                    <span>Progress</span>
+                    <span className="mono">{s.completed?.toLocaleString()} / {s.totalTarget?.toLocaleString()}</span>
+                  </div>
+                  <div className="progress"><div className="progress-bar" style={{ width: `${progress}%` }} /></div>
+                </div>
+
+                {/* Distribution stacked bar */}
+                {s.completed > 0 && (
+                  <div>
+                    <div className="dist-bar">
+                      <div className="dist-bar-seg" style={{ width: `${sP}%`, background: 'var(--emerald)' }} />
+                      <div className="dist-bar-seg" style={{ width: `${tP}%`, background: 'var(--amber)'   }} />
+                      <div className="dist-bar-seg" style={{ width: `${dP}%`, background: 'var(--red)'     }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, marginTop: 3 }}>
+                      <span className="mono c-success">{sP.toFixed(0)}%</span>
+                      <span className="mono c-timeout">{tP.toFixed(0)}%</span>
+                      <span className="mono c-decline">{dP.toFixed(0)}%</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Stat grid */}
+                <div className="stat-grid">
+                  {STATS.map(({ label, val, color }) => (
+                    <div className="stat-card" key={label}>
+                      <div className="stat-label" style={{ color }}>{label}</div>
+                      <div className="stat-value" style={{ color }}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--muted)', borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                  <span>Elapsed</span>
+                  <span className="mono">{((s.elapsedMs ?? 0) / 1000).toFixed(1)}s</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // MessageInspector — polls /sim/history @ 500ms
+    // ============================================================
+    function MessageInspector() {
+      const history = usePoll('/sim/history', 500) ?? [];
+      const [selId, setSelId] = useState(null);
+
+      // Auto-select newest
+      useEffect(() => {
+        if (history.length > 0 && !selId) setSelId(history[0].id);
+      }, [history.length]);
+
+      const sel = history.find(h => h.id === selId) ?? null;
+
+      const statusColor = s => s === 'success' ? 'var(--emerald)' : s === 'timeout' ? 'var(--amber)' : 'var(--red)';
+      const statusMsg = s =>
+        s === 'success' ? '00 — Approved'
+        : s === 'timeout' ? 'TO — Network Timeout'
+        : '05 — Do Not Honor';
+
+      return (
+        <div className="card" style={{ flexDirection: 'row' }}>
+          {/* Table */}
+          <div style={{ flex: '0 0 52%', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)' }}>
+            <div className="card-header">
+              <span className="card-title">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" strokeWidth="2" strokeLinecap="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                Transaction History
+              </span>
+              <span style={{ fontSize: 10, color: 'var(--muted)' }}>{history.length} records</span>
+            </div>
+            <div className="card-body">
+              <table className="tx-table">
+                <thead>
+                  <tr>
+                    <th>Status</th><th>ID</th><th>Type</th><th style={{ textAlign: 'right' }}>RT</th><th style={{ textAlign: 'right' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.length === 0 ? (
+                    <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--muted)', padding: '30px', fontStyle: 'italic' }}>No transactions yet</td></tr>
+                  ) : history.map(tx => (
+                    <tr key={tx.id} className={selId === tx.id ? 'selected' : ''} onClick={() => setSelId(tx.id)}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: statusColor(tx.status) }}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                            {tx.status === 'success' ? <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></> :
+                             tx.status === 'timeout' ? <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></> :
+                             <><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></>}
+                          </svg>
+                          <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'capitalize' }}>{tx.status}</span>
+                        </div>
+                      </td>
+                      <td className="mono" style={{ color: 'var(--muted)' }}>{tx.id}</td>
+                      <td style={{ fontSize: 10 }}>
+                        <span style={{ color: statusColor(tx.status), background: 'var(--surface2)', border: `1px solid ${statusColor(tx.status)}30`, borderRadius: 4, padding: '1px 6px', fontSize: 10 }}>{tx.type}</span>
+                      </td>
+                      <td className="mono" style={{ textAlign: 'right', color: tx.totalDurationMs > 5000 ? 'var(--amber)' : 'var(--muted)' }}>{tx.totalDurationMs}ms</td>
+                      <td className="mono" style={{ textAlign: 'right', color: 'var(--text)' }}>${tx.amount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Inspector Detail */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div className="card-header">
+              <span className="card-title">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                Inspector
+              </span>
+              {sel && <span style={{ fontSize: 10, fontFamily: "'JetBrains Mono'", fontWeight: 700, color: statusColor(sel.status), background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 7px' }}>{sel.status.toUpperCase()}</span>}
+            </div>
+            <div className="card-body" style={{ padding: 14 }}>
+              {!sel ? (
+                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', gap: 8, opacity: 0.5 }}>
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                  <span style={{ fontSize: 11 }}>Select a transaction</span>
+                </div>
+              ) : (
+                <div>
+                  {[
+                    ['Transaction ID',   sel.id,                        true,  null],
+                    ['Status Message',   statusMsg(sel.status),         false, statusColor(sel.status)],
+                    ['Type',             sel.type,                      false, null],
+                    ['Amount',           `$${sel.amount}`,              true,  null],
+                    ['Round Trip',       `${sel.totalDurationMs}ms`,    true,  sel.totalDurationMs > 5000 ? 'var(--amber)' : 'var(--emerald)'],
+                    ['Timestamp',        new Date(sel.timestamp).toLocaleString(), false, null],
+                  ].map(([label, value, mono, color]) => (
+                    <div key={label}>
+                      <div className="field-label">{label}</div>
+                      <div className="field-value" style={{ fontFamily: mono ? "'JetBrains Mono', monospace" : undefined, color: color ?? undefined }}>{value}</div>
+                    </div>
+                  ))}
+                  <div className="field-label">ISO-8583 Raw Hex (Ingress)</div>
+                  <div className="code-block c-success">{sel.rawIsoHex}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // LiveEngine — polls /api/dashmap + /api/journal @ 2s
+    // ============================================================
+    function LiveEngine() {
+      const dashmap = usePoll('/api/dashmap', 2000);
+      const journal = usePoll('/api/journal',  2000);
+      const [live, setLive] = useState(true);
+      const entries  = dashmap?.active_transactions ?? [];
+      const events   = journal?.journal_events ?? [];
+      const lastUpd  = useRef('');
+      if (dashmap) lastUpd.current = new Date().toLocaleTimeString();
+
+      return (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2" strokeLinecap="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+              Live Engine
+            </span>
+            <span style={{ fontSize: 9, color: 'var(--muted)' }} className="mono">{lastUpd.current}</span>
+          </div>
+
+          <div className="card-body" style={{ display: 'flex', flexDirection: 'column' }}>
+            {/* DashMap guard */}
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" strokeWidth="2" strokeLinecap="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                  DashMap Guard
+                </span>
+                <span style={{ fontSize: 9, color: 'var(--purple)', background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.25)', borderRadius: 4, padding: '1px 6px' }} className="mono">{dashmap?.total_guarded ?? 0} locks</span>
+              </div>
+              <div style={{ maxHeight: 90, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {entries.length === 0
+                  ? <div style={{ fontSize: 10, color: 'var(--muted)', fontStyle: 'italic', textAlign: 'center', padding: 6 }}>No active locks</div>
+                  : entries.map((tx, i) => (
+                    <div key={i} className="journal-row">
+                      <div>
+                        <div className="mono c-cyan" style={{ fontSize: 10 }}>{tx.key?.substring(0, 14)}..</div>
+                        <div style={{ fontSize: 9, color: 'var(--muted)' }}>{tx.state}</div>
+                      </div>
+                      <div className="mono" style={{ fontSize: 9, color: 'var(--amber)' }}>{tx.created_at_ms}ms</div>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+
+            {/* WAL Journal */}
+            <div style={{ flex: 1, min_height: 0, padding: '8px 12px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexShrink: 0 }}>
+                <span style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  WAL Journal
+                </span>
+                <span style={{ fontSize: 9, color: 'var(--cyan)', background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.25)', borderRadius: 4, padding: '1px 6px' }} className="mono">{events.length} events</span>
+              </div>
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                {events.length === 0
+                  ? <div style={{ fontSize: 10, color: 'var(--muted)', fontStyle: 'italic', textAlign: 'center', padding: 6 }}>No WAL records</div>
+                  : events.map((evt, i) => (
+                    <div key={i} className="journal-row">
+                      <div>
+                        <div className="mono bold" style={{ fontSize: 10, color: 'var(--indigo)', letterSpacing: '0.15em' }}>{evt.mti}</div>
+                        <div className="mono" style={{ fontSize: 9, color: 'var(--muted)', marginTop: 1 }}>{evt.rrn}</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div className="mono bold" style={{ fontSize: 11, color: !evt.response_code ? 'var(--muted)' : (evt.response_code === '00' ? 'var(--emerald)' : 'var(--red)') }}>
+                          {evt.response_code || '---'}
+                        </div>
+                        <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 1 }}>${evt.amount}</div>
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // App — pure layout shell, zero shared state
+    // ============================================================
+    function App() {
+      return (
+        <div className="app">
+          {/* Header */}
+          <div className="header">
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: 'var(--cyan)' }}>IsoSwitch</span>
+                <span style={{ color: 'var(--muted)', fontWeight: 400 }}>/</span>
+                <span style={{ color: 'var(--text)', fontWeight: 600 }}>Payment Command Center</span>
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                ISO-8583 · High-Throughput Simulator · Node.js Engine
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[['TCP :8000', 'var(--emerald)'], ['Telemetry :8080', 'var(--emerald)'], ['Sim Engine :3001', 'var(--cyan)']].map(([label, c]) => (
+                <span key={label} className="badge badge-system" style={{ fontSize: 10 }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: c, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Top Row */}
+          <div className="row row-top">
+            <ControlPanel />
+            <TopologyFlow />
+            <MetricsPanel />
+          </div>
+
+          {/* Bottom Row */}
+          <div className="row row-bottom">
+            <ExecutionReport />
+            <MessageInspector />
+            <LiveEngine />
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+   Compiling payment-daemon v0.1.0 (D:\cob2java\GitHub\ISO8583PaymentEngine\payment-daemon)
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `sled`
+  --> payment-daemon\src\main.rs:31:14
+   |
+31 |     let db = sled::open("saf.db").expect("Failed to open saf.db exclusively");
+   |              ^^^^ use of unresolved module or unlinked crate `sled`
+   |
+   = help: if you wanted to use a crate named `sled`, use `cargo add sled` to add it to your `Cargo.toml`
+
+For more information about this error, try `rustc --explain E0433`.
+error: could not compile `payment-daemon` (bin "payment-daemon") due to 1 previous error

@@ -1,0 +1,12 @@
+   Compiling edge-ingress v0.1.0 (D:\cob2java\GitHub\ISO8583PaymentEngine\edge-ingress)
+   Compiling payment-daemon v0.1.0 (D:\cob2java\GitHub\ISO8583PaymentEngine\payment-daemon)
+warning: unused variable: `bank_reply_tx`
+  --> payment-daemon\src\main.rs:28:9
+   |
+28 |     let bank_reply_tx = engine.bank_reply();
+   |         ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bank_reply_tx`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `payment-daemon` (bin "payment-daemon") generated 1 warning (run `cargo fix --bin "payment-daemon" -p payment-daemon` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.24s

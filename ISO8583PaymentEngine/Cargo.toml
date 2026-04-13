@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "payment-proto",
+    "iso-parser",
+    "switch-core",
+    "edge-ingress",
+    "edge-egress",
+    "hsm-client",
+    "payment-daemon",
+    "iso-dialect"
+]
+resolver = "2"

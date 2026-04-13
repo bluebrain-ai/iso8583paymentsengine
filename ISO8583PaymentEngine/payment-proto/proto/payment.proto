@@ -1,0 +1,16 @@
+syntax = "proto3";
+package payment;
+
+message Transaction {
+  string mti = 1;
+  string pan = 2;
+  string processing_code = 3;
+  int64 amount = 4;
+  string stan = 5;
+  string rrn = 6;
+  string response_code = 7;
+  string acquirer_id = 8;
+  string pin_block = 9;
+  string local_time = 10;
+  string local_date = 11;
+}

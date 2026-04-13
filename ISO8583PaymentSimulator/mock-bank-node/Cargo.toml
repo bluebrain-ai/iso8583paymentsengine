@@ -1,0 +1,15 @@
+[package]
+name = "mock-bank-node"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+bytes = "1.0"
+payment-proto = { path = "../../ISO8583PaymentEngine/payment-proto" }
+iso-parser = { path = "../../ISO8583PaymentEngine/iso-parser" }
+iso-dialect = { path = "../../ISO8583PaymentEngine/iso-dialect" }
+edge-ingress = { path = "../../ISO8583PaymentEngine/edge-ingress" }
+switch-core = { path = "../../ISO8583PaymentEngine/switch-core" }
+futures = "0.3"

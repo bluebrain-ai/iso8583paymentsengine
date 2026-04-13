@@ -1,0 +1,29 @@
+[workspace]
+members = [".", "mock-bank-node"]
+
+[package]
+name = "mock-load-generator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.37", features = ["full"] }
+axum = "0.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+crossbeam = "0.8"
+rand = "0.8"
+chrono = "0.4"
+reqwest = { version = "0.12", features = ["json"] }
+dashmap = "5.5"
+uuid = { version = "1.4", features = ["v4", "fast-rng"] }
+bytes = "1.0"
+payment-proto = { path = "../ISO8583PaymentEngine/payment-proto" }
+iso-dialect = { path = "../ISO8583PaymentEngine/iso-dialect" }
+tokio-util = { version = "0.7", features = ["codec"] }
+futures = "0.3"
+
+[[bin]]
+name = "mock_hsm"
+path = "src/bin/mock_hsm.rs"

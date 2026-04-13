@@ -1,0 +1,34 @@
+   Compiling switch-core v0.1.0 (D:\cob2java\GitHub\ISO8583PaymentEngine\switch-core)
+   Compiling edge-ingress v0.1.0 (D:\cob2java\GitHub\ISO8583PaymentEngine\edge-ingress)
+   Compiling edge-egress v0.1.0 (D:\cob2java\GitHub\ISO8583PaymentEngine\edge-egress)
+error[E0308]: mismatched types
+   --> edge-ingress\src\server.rs:42:69
+    |
+ 42 | ...                   let _ = framed.send(payload).await;
+    |                                      ---- ^^^^^^^ expected `BytesMut`, found `Bytes`
+    |                                      |
+    |                                      arguments to this method are incorrect
+    |
+help: the return type of this call is `bytes::Bytes` due to the type of the argument passed
+   --> edge-ingress\src\server.rs:42:57
+    |
+ 42 | ...                   let _ = framed.send(payload).await;
+    |                               ^^^^^^^^^^^^-------^
+    |                                           |
+    |                                           this argument influences the return type of `send`
+note: method defined here
+   --> C:\Users\jarvi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-util-0.3.32\src\sink\mod.rs:220:8
+    |
+220 |     fn send(&mut self, item: Item) -> Send<'_, Self, Item>
+    |        ^^^^
+help: call `Into::into` on this expression to convert `bytes::Bytes` into `BytesMut`
+    |
+ 42 |                                                 let _ = framed.send(payload.into()).await;
+    |                                                                            +++++++
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `edge-ingress` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: failed to remove D:\cob2java\GitHub\ISO8583PaymentEngine\target\debug\deps\switch_core-5f5354ecee217c22.cj4v9frtk7lo1x3svx88vkzv0.1kvhdu1.rcgu.o: The process cannot access the file because it is being used by another process. (os error 32)
+
+error: could not compile `switch-core` (lib test) due to 1 previous error

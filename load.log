@@ -1,0 +1,9 @@
+
+╔══════════════════════════════════════════════╗
+║   IsoSwitch Payment Command Center           ║
+║   → http://localhost:3001                    ║
+║   Sim Engine: Rust Native Axum (this process)║
+║   Rust Daemon expected on TCP :8000          ║
+║   Telemetry expected on HTTP :8080           ║
+╚══════════════════════════════════════════════╝
+

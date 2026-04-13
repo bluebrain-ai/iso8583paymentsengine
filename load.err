@@ -1,0 +1,84 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+warning: function `read_lllvar` is never used
+  --> D:\cob2java\GitHub\ISOPaymentEngine\ISO8583PaymentEngine\iso-dialect\src\lib.rs:61:4
+   |
+61 | fn read_lllvar<'a>(data: &'a [u8], offset: &mut usize) -> Result<&'a [u8], ParseError> {
+   |    ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `iso-dialect` (lib) generated 1 warning
+warning: unused imports: `Receiver`, `Sender`, and `bounded`
+ --> src\engine.rs:1:26
+  |
+1 | use crossbeam::channel::{bounded, Receiver, Sender};
+  |                          ^^^^^^^  ^^^^^^^^  ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `distributions::Alphanumeric`
+ --> src\engine.rs:2:12
+  |
+2 | use rand::{distributions::Alphanumeric, Rng};
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `HashMap`
+ --> src\engine.rs:4:24
+  |
+4 | use std::collections::{HashMap, VecDeque};
+  |                        ^^^^^^^
+
+warning: unused imports: `AsyncReadExt` and `AsyncWriteExt`
+ --> src\engine.rs:8:17
+  |
+8 | use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  |                 ^^^^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused import: `tokio::net::TcpStream`
+ --> src\engine.rs:9:5
+  |
+9 | use tokio::net::TcpStream;
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Html`
+ --> src\main.rs:6:16
+  |
+6 |     response::{Html, IntoResponse},
+  |                ^^^^
+
+warning: value assigned to `response_code` is never read
+   --> src\engine.rs:236:33
+    |
+236 |         let mut response_code = String::from("68");
+    |                                 ^^^^^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `decline` is never read
+  --> src\main.rs:28:5
+   |
+25 | struct Distribution {
+   |        ------------ field in this struct
+...
+28 |     decline: Option<f64>,
+   |     ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `elapsed_ms` is never read
+  --> src\engine.rs:83:9
+   |
+72 | pub struct StatusCounters {
+   |            -------------- field in this struct
+...
+83 |     pub elapsed_ms: AtomicUsize,
+   |         ^^^^^^^^^^
+
+warning: `mock-load-generator` (bin "mock-load-generator") generated 9 warnings (run `cargo fix --bin "mock-load-generator" -p mock-load-generator` to apply 6 suggestions)
+    Finished `release` profile [optimized] target(s) in 1.04s
+     Running `target\release\mock-load-generator.exe`
+error: process didn't exit successfully: `target\release\mock-load-generator.exe` (exit code: 0xffffffff)

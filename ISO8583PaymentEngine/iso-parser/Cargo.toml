@@ -1,0 +1,8 @@
+[package]
+name = "iso-parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nom = "7.1"
+bitflags = "2.4"

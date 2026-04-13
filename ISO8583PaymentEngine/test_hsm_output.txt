@@ -1,0 +1,9 @@
+   Compiling syn v2.0.117
+   Compiling tokio-macros v2.7.0
+   Compiling tokio v1.51.1
+   Compiling hsm-client v0.1.0 (D:\cob2java\GitHub\ISO8583PaymentEngine\hsm-client)
+error: failed to remove D:\cob2java\GitHub\ISO8583PaymentEngine\target\debug\deps\hsm_client-2a7fdc3f48bacf74.7hucy4fjvjfd29weckmxqlxa0.0k11etr.rcgu.o: The process cannot access the file because it is being used by another process. (os error 32)
+
+error: failed to remove D:\cob2java\GitHub\ISO8583PaymentEngine\target\debug\deps\hsm_client-2a7fdc3f48bacf74.ac7kg2qec6vkykgv9eo3e54v3.0k11etr.rcgu.o: The process cannot access the file because it is being used by another process. (os error 32)
+
+error: could not compile `hsm-client` (lib test) due to 2 previous errors

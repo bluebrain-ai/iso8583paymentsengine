@@ -1,0 +1,18 @@
+[package]
+name = "edge-egress"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+bytes = "1.0"
+crossbeam = "0.8"
+payment-proto = { path = "../payment-proto" }
+iso-parser = { path = "../iso-parser" }
+iso-dialect = { path = "../iso-dialect" }
+futures = "0.3"
+switch-core = { path = "../switch-core" }
+sled = "0.34"
+prost = "0.12"
+dashmap = "5.5"
