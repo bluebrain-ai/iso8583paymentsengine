@@ -40,11 +40,14 @@ pub struct Rrn(pub String);
 pub struct ResponseCode(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CanonicalTransaction {
+pub struct UniversalPaymentEvent {
     pub message_class: MessageClass,
     pub transaction_type: TransactionType,
     pub mti: Bytes,
-    pub pan: Bytes,
+    pub fpan: Bytes, // Funding PAN
+    pub dpan: Option<String>, // Device PAN
+    pub is_tokenized: bool,
+    pub tavv_cryptogram: Option<String>,
     pub processing_code: ProcessingCode,
     pub amount: u64,
     pub stan: Stan,
@@ -54,4 +57,8 @@ pub struct CanonicalTransaction {
     pub response_code: ResponseCode,
     pub acquirer_id: Bytes,
     pub pin_block: Bytes,
+    /// Network risk score (0–100). Populated from a `RSK:NNN:` TLV prefix in
+    /// Field 48 (Additional Private Data), as injected by the upstream network
+    /// (e.g. Visa Advanced Authorization). Default 0 = no risk signal present.
+    pub risk_score: u8,
 }

@@ -88,6 +88,7 @@ struct StipRuleRow {
     network_id: String,
     condition_type: String,
     max_approval_amount: i64,
+    max_risk_score: i32,
     version: i32,
     valid_from: DateTime<Utc>,
     valid_to: Option<DateTime<Utc>>,
@@ -127,11 +128,17 @@ struct CreateStipReq {
     network_id: String,
     condition_type: String,
     max_approval_amount: i64,
+    #[serde(default = "default_max_risk_score")]
+    max_risk_score: i32,
 }
+
+fn default_max_risk_score() -> i32 { 100 }
 
 #[derive(Deserialize)]
 struct UpdateStipReq {
     max_approval_amount: i64,
+    #[serde(default = "default_max_risk_score")]
+    max_risk_score: i32,
 }
 
 #[derive(Deserialize)]
@@ -154,6 +161,7 @@ struct UpdateRouteReq {
 #[derive(Serialize)]
 struct StipRule {
     action: String,
+    max_risk_score: u8,
 }
 
 #[derive(Serialize)]
@@ -260,11 +268,12 @@ async fn create_stip_rule(
     Json(payload): Json<CreateStipReq>,
 ) -> StatusCode {
     let res = sqlx::query(
-        "INSERT INTO stip_rules (network_id, condition_type, max_approval_amount, version, is_live) VALUES (?, ?, ?, 1, 1)"
+        "INSERT INTO stip_rules (network_id, condition_type, max_approval_amount, max_risk_score, version, is_live) VALUES (?, ?, ?, ?, 1, 1)"
     )
     .bind(&payload.network_id)
     .bind(&payload.condition_type)
     .bind(payload.max_approval_amount)
+    .bind(payload.max_risk_score)
     .execute(&state.db)
     .await;
 
@@ -295,11 +304,12 @@ async fn update_stip_rule(
             .unwrap();
 
         sqlx::query(
-            "INSERT INTO stip_rules (network_id, condition_type, max_approval_amount, version, is_live) VALUES (?, ?, ?, ?, 1)"
+            "INSERT INTO stip_rules (network_id, condition_type, max_approval_amount, max_risk_score, version, is_live) VALUES (?, ?, ?, ?, ?, 1)"
         )
         .bind(&record.network_id)
         .bind(&record.condition_type)
         .bind(payload.max_approval_amount)
+        .bind(payload.max_risk_score)
         .bind(record.version + 1)
         .execute(&mut *tx)
         .await
@@ -416,6 +426,7 @@ async fn publish_stip(State(state): State<Arc<AppState>>) -> StatusCode {
         let key = r.network_id;
         stip_engine.rules.insert(key, StipRule {
             action: format!("APPROVE_UP_TO_{}", r.max_approval_amount),
+            max_risk_score: r.max_risk_score.clamp(0, 100) as u8,
         });
     }
 

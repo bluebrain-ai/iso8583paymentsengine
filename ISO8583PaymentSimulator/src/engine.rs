@@ -15,7 +15,7 @@ use iso_dialect::{DialectRouter, ConnexDialect};
 
 static STAN_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
-fn generate_transaction(profile: &str, rrn_str: String) -> CanonicalTransaction {
+fn generate_transaction(profile: &str, rrn_str: String, network: &str, entry_mode: &str) -> UniversalPaymentEvent {
     let mut rng = rand::thread_rng();
     
     let stan_val = STAN_COUNTER.fetch_add(1, Ordering::Relaxed) % 999999;
@@ -31,11 +31,43 @@ fn generate_transaction(profile: &str, rrn_str: String) -> CanonicalTransaction 
         rng.gen_range(100..49999)
     };
 
-    CanonicalTransaction {
+    let mut base_fpan = match network {
+        "Visa" => "4111111111111111",
+        "Mastercard" => "5111111111111111",
+        "Amex" => "3711111111111111",
+        _ => "4111111111111111"
+    };
+
+    let mut is_tokenized = false;
+    let mut dpan = None;
+    let mut tavv_cryptogram = None;
+
+    if entry_mode == "ApplePay" {
+        // Apple Pay uses NFC tokenization (EMV contactless): no PIN block transmitted.
+        // The DPAN (Device PAN) is the wire PAN; the TSP vault maps it to the real FPAN.
+        is_tokenized = true;
+        base_fpan = "4000000000009999";
+        tavv_cryptogram = Some("AABBCCDDEEFF0011".to_string());
+    }
+
+    // PIN block rules:
+    //   POS (chip+PIN, magstripe+PIN) → include an encrypted PIN block.
+    //   EMV contactless / NFC        → no PIN; cardholder verified by cryptogram.
+    //   Apple Pay (tokenized NFC)    → no PIN; auth is TAVV cryptogram only.
+    let pin_block = if entry_mode == "POS" {
+        bytes::Bytes::from_static(b"1234567890ABCDEF")
+    } else {
+        bytes::Bytes::new()
+    };
+
+    UniversalPaymentEvent {
         message_class: MessageClass::Financial,
         transaction_type: TransactionType::Purchase,
         mti: bytes::Bytes::from_static(b"0200"),
-        pan: bytes::Bytes::from("4111111111111111"),
+        fpan: bytes::Bytes::from(base_fpan),
+        dpan,
+        is_tokenized,
+        tavv_cryptogram,
         processing_code: ProcessingCode("000000".to_string()),
         amount,
         stan: Stan(stan_str),
@@ -44,8 +76,20 @@ fn generate_transaction(profile: &str, rrn_str: String) -> CanonicalTransaction 
         rrn: Rrn(rrn_str),
         response_code: ResponseCode(String::new()),
         acquirer_id: bytes::Bytes::from_static(b"123456"),
-        pin_block: bytes::Bytes::from_static(b"1234567890ABCDEF"),
+        pin_block,
+        risk_score: 0, // No risk signal for simulator-generated transactions
     }
+}
+
+#[derive(Clone)]
+pub struct DistConfig {
+    pub happy: f64,
+    pub timeout: f64,
+    pub visa: f64,
+    pub mastercard: f64,
+    pub apple_pay: f64,
+    pub emv: f64,
+    pub base24: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -67,6 +111,9 @@ pub struct HistoryRecord {
     pub totalDurationMs: u64,
     pub rawIsoHex: String,
     pub responseCode: String,
+    pub network: String,
+    pub entryMode: String,
+    pub dialect: String,
 }
 
 pub struct StatusCounters {
@@ -161,11 +208,14 @@ impl SimEngine {
 
 pub async fn run_worker(
     engine: Arc<SimEngine>,
-    happy: f64,
-    timeout: f64,
+    config: DistConfig,
     mut cancel_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
-    let fwd_nodes = vec!["terminal", "ingress", "core", "hsm", "egress", "bank"];
+    // Standard forward path for non-tokenized transactions.
+    let fwd_nodes_standard = vec!["terminal", "ingress", "core", "hsm", "egress", "bank"];
+    // Tokenized (Apple Pay) path: transaction passes through the TSP Vault for detokenization
+    // before being routed to the upstream bank. The HSM node is skipped (no PIN).
+    let fwd_nodes_tokenized = vec!["terminal", "ingress", "tsp", "core", "egress", "bank"];
     let rev_ok_nodes = vec!["bank", "egress", "core", "ingress", "terminal"];
     let rev_err_nodes = vec!["core", "ingress", "terminal"];
     let mut persistent_stream: Option<tokio::net::TcpStream> = None;
@@ -186,24 +236,62 @@ pub async fn run_worker(
         engine.status.in_flight.fetch_add(1, Ordering::Relaxed);
 
         let rand_val: f64 = rand::thread_rng().gen();
-        let tx_type = if rand_val < happy {
+        let tx_type = if rand_val < config.happy {
             "Happy Path"
-        } else if rand_val < happy + timeout {
+        } else if rand_val < config.happy + config.timeout {
             "Timeout"
         } else {
             "Decline"
         };
         
+        let rand_net: f64 = rand::thread_rng().gen();
+        let network = if rand_net < config.visa {
+            "Visa"
+        } else if rand_net < config.visa + config.mastercard {
+            "Mastercard"
+        } else {
+            "Amex"
+        };
+        
+        let rand_mode: f64 = rand::thread_rng().gen();
+        let entry_mode = if rand_mode < config.apple_pay {
+            "ApplePay"
+        } else if rand_mode < config.apple_pay + config.emv {
+            "EMV"
+        } else {
+            "POS"
+        };
+
+        let rand_dialect: f64 = rand::thread_rng().gen();
+        let dialect_name = if rand_dialect < config.base24 {
+            "Base24"
+        } else {
+            "Connex"
+        };
+
         let profile = if tx_type == "Decline" { "Decline" } else { "Happy Path" };
 
         let id = uuid::Uuid::new_v4().simple().to_string()[0..7].to_string().to_uppercase();
         let rrn_str = uuid::Uuid::new_v4().simple().to_string()[0..12].to_string().to_uppercase();
 
-        let tx_data = generate_transaction(profile, rrn_str);
+        let tx_data = generate_transaction(profile, rrn_str, network, entry_mode);
         let amount = tx_data.amount.to_string();
+
+        // Select the correct topology pulse path based on whether this is a tokenized flow.
+        // Apple Pay → TSP Vault detokenization path (no HSM — cryptogram replaces PIN).
+        // Standard  → HSM PIN-translate path (for POS PIN-entry transactions).
+        let fwd_nodes: &Vec<&str> = if tx_data.is_tokenized {
+            &fwd_nodes_tokenized
+        } else {
+            &fwd_nodes_standard
+        };
         
         // NATIVE ENCODING HERE - utilizing strict canonical bytes mapped via DialectRouter
-        let dialect = DialectRouter::Connex(ConnexDialect);
+        let dialect = if dialect_name == "Base24" {
+            DialectRouter::Base24(iso_dialect::Base24Dialect)
+        } else {
+            DialectRouter::Connex(ConnexDialect)
+        };
         let encoded = match dialect.encode(&tx_data) {
             Ok(b) => b,
             Err(_) => {
@@ -216,7 +304,7 @@ pub async fn run_worker(
         let start_time = Instant::now();
 
         // FWD Animation bounds
-        for node in &fwd_nodes {
+        for node in fwd_nodes {
             if let Ok(_) = cancel_rx.try_recv() {
                 return;
             }
@@ -337,6 +425,9 @@ pub async fn run_worker(
             totalDurationMs: duration_ms,
             rawIsoHex: hex,
             responseCode: response_code,
+            network: network.to_string(),
+            entryMode: entry_mode.to_string(),
+            dialect: dialect_name.to_string(),
         };
 
         let mut h = engine.history.lock().unwrap();

@@ -5,18 +5,20 @@ param (
     [switch]$Daemon,
     [switch]$Ui,
     [switch]$ControlPlane,
-    [switch]$OpsUi
+    [switch]$TestOrchestrator,
+    [switch]$OpsBff
 )
 
 # If no flags are provided, assume "All"
-if (-not $Stip -and -not $Mock -and -not $Daemon -and -not $Ui -and -not $ControlPlane -and -not $OpsUi) {
+if (-not $Stip -and -not $Mock -and -not $Daemon -and -not $Ui -and -not $ControlPlane -and -not $TestOrchestrator -and -not $OpsBff) {
     $All = $true
 }
 
 $EngineDir = "$PSScriptRoot\ISO8583PaymentEngine"
 $UiDir = "$PSScriptRoot\ISO8583PaymentSimulator"
 $ControlPlaneDir = "$PSScriptRoot\ops-control-plane"
-$OpsUiDir = "$PSScriptRoot\ops-ui"
+$TestOrchestratorDir = "$PSScriptRoot\test-orchestrator"
+$OpsBffDir = "$PSScriptRoot\ops-bff"
 
 Write-Host "=========================================" -ForegroundColor Magenta
 Write-Host "   ISO8583 Payment Engine Orchestrator   " -ForegroundColor Magenta
@@ -25,7 +27,7 @@ Write-Host "=========================================" -ForegroundColor Magenta
 $global:runningProcs = @()
 
 # Automatically hunt down and terminate any stale zombie services from prior runs
-$targets = @("mock-bank-node", "payment-daemon", "mock-load-generator", "ops-control-plane", "mock_hsm")
+$targets = @("mock-bank-node", "payment-daemon", "mock-load-generator", "ops-control-plane", "mock_hsm", "test-orchestrator", "node")
 $stale = Get-Process | Where-Object { $targets -contains $_.ProcessName }
 if ($stale) {
     Write-Host "[!] Discovered previous engine services already running! Cancelling them..." -ForegroundColor Yellow
@@ -69,7 +71,7 @@ function Boot-Service {
 
 if ($All -or $ControlPlane) {
     Write-Host "-> Booting Control Plane API (SQLite Initialized Natively)..." -ForegroundColor Cyan
-    Boot-Service -TaskName "Booting Control Plane API (Port 3001)" -ProcessExe "cargo" -CommandArgs "run" -WorkingDir $ControlPlaneDir
+    Boot-Service -TaskName "Booting Control Plane API (Port 3003)" -ProcessExe "cargo" -CommandArgs "run" -WorkingDir $ControlPlaneDir
 }
 
 if ($All -or $Stip) {
@@ -95,8 +97,12 @@ if ($All -or $Ui) {
     Boot-Service -TaskName "Spinning up the Fast-Load Generator..." -ProcessExe "cargo" -CommandArgs "run --release --bin mock-load-generator" -WorkingDir $UiDir
 }
 
-if ($All -or $OpsUi) {
-    Boot-Service -TaskName "Spinning up the Operations Dashboard (Port 3002)" -ProcessExe "npm.cmd" -CommandArgs "run dev -- -p 3002" -WorkingDir $OpsUiDir
+if ($All -or $TestOrchestrator) {
+    Boot-Service -TaskName "Starting Rust Test Orchestrator (Port 9000)" -ProcessExe "cargo" -CommandArgs "run" -WorkingDir $TestOrchestratorDir
+}
+
+if ($All -or $OpsBff) {
+    Boot-Service -TaskName "Starting Node.js BFF Edge Gateway (Port 3001)" -ProcessExe "node" -CommandArgs "server.js" -WorkingDir $OpsBffDir
 }
 
 if ($All -or $Daemon -or $ControlPlane) {

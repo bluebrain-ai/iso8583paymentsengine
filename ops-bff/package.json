@@ -1,0 +1,13 @@
+{
+  "name": "ops-bff",
+  "version": "1.0.0",
+  "description": "God Mode Command Center Gateway",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "http-proxy-middleware": "^3.0.0"
+  }
+}

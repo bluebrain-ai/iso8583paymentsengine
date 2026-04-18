@@ -18,9 +18,14 @@ uuid = { version = "1.4", features = ["v4", "fast-rng"] }
 bytes = "1.0"
 payment-proto = { path = "../ISO8583PaymentEngine/payment-proto" }
 iso-dialect = { path = "../ISO8583PaymentEngine/iso-dialect" }
+switch-core = { path = "../ISO8583PaymentEngine/switch-core" }
 tokio-util = { version = "0.7", features = ["codec"] }
 futures = "0.3"
 
 [[bin]]
 name = "mock_hsm"
 path = "src/bin/mock_hsm.rs"
+
+[[bin]]
+name = "mock_atm"
+path = "src/bin/mock_atm.rs"

@@ -72,9 +72,60 @@ impl SwitchEngine {
 
                     tracing::info!("Transaction parsed and validated");
 
+                    // TSP Detokenizer Interception
+                    if context.transaction.is_tokenized {
+                        let dpan = String::from_utf8_lossy(&context.transaction.fpan).to_string();
+                        if let Some(real_fpan) = safe_memory_state.tsp_vault.detokenize(&dpan) {
+                            context.transaction.fpan = bytes::Bytes::from(real_fpan);
+                            context.transaction.dpan = Some(dpan.clone());
+                            
+                            let masked_pan = format!("{}****{}", &dpan[..6], &dpan[dpan.len().saturating_sub(4)..]);
+                            tracing::info!("Detokenization successful. DPAN: {}", masked_pan);
+                        } else {
+                            metrics::increment_counter!("transactions_total", "status" => "declined");
+                            telemetry.log(TelemetryEvent::RoutingFailed { rrn: rrn.clone() });
+                            if let Some(responder) = context.responder.take() {
+                                let mut decline = context.transaction.clone();
+                                decline.mti = bytes::Bytes::from_static(b"0110");
+                                decline.response_code = payment_proto::canonical::ResponseCode("56".to_string());
+                                let _ = responder.send(decline);
+                            }
+                            continue;
+                        }
+                    }
+
                     // Snapshot lock-free cache read exactly once at routing inception
                     let current_stip = safe_memory_state.stip.load();
                     let _current_crdb = safe_memory_state.crdb.load();
+
+                    // ── Phase 3: Dynamic Risk-Based STIP Pre-Screen ──────────────────────────
+                    // Evaluate the network risk score BEFORE the idempotency guard and online
+                    // forwarding. A high-risk score (exceeding the operator-configured threshold
+                    // for the card's network) triggers an instant RC 59 decline.  This happens
+                    // on ALL transactions — not just STIP fallback — to prevent fraud propagation.
+                    if context.transaction.risk_score > 0 {
+                        let network_id = if context.transaction.fpan.starts_with(b"4") { "VISA" }
+                            else if context.transaction.fpan.starts_with(b"5") { "MASTERCARD" }
+                            else { "DEFAULT" };
+                        // Look up the configured max risk score for this network.
+                        // If no rule exists, default to 100 (screening disabled).
+                        let threshold = current_stip
+                            .rules
+                            .get(network_id)
+                            .map(|r| r.max_risk_score)
+                            .unwrap_or(100u8);
+                        if context.transaction.risk_score > threshold {
+                            metrics::increment_counter!("transactions_total", "status" => "declined");
+                            telemetry.log(TelemetryEvent::RoutingFailed { rrn: rrn.clone() });
+                            if let Some(responder) = context.responder.take() {
+                                let mut decline = context.transaction.clone();
+                                decline.mti = bytes::Bytes::from_static(b"0110");
+                                decline.response_code = payment_proto::canonical::ResponseCode("59".to_string()); // Suspected Fraud
+                                let _ = responder.send(decline);
+                            }
+                            continue;
+                        }
+                    }
 
                     let mut _state = TxState::Received;
                     
@@ -84,7 +135,7 @@ impl SwitchEngine {
 
                     match context.transaction.message_class {
                         MessageClass::NetworkManagement => {
-                            let is_for_switch = !context.transaction.pan.starts_with(b"4") && !context.transaction.pan.starts_with(b"5");
+                            let is_for_switch = !context.transaction.fpan.starts_with(b"4") && !context.transaction.fpan.starts_with(b"5");
 
                             if is_for_switch {
                                 let mut echo_reply = context.transaction.clone();
@@ -122,6 +173,9 @@ impl SwitchEngine {
                                 state: NetworkState::UpstreamSent,
                                 responder: context.responder.take(),
                                 transaction_data: crate::to_pb(&context.transaction),
+                                // Populated post-routing when a unique egress STAN is assigned.
+                                // Remains None for CRDB-routed and STIP-fallback transactions.
+                                egress_stan: None,
                             });
                         }
                     }
@@ -145,7 +199,7 @@ impl SwitchEngine {
                         let target_egress = match context.transaction.message_class {
                             MessageClass::Authorization | MessageClass::Financial | MessageClass::ReversalAdvice | MessageClass::NetworkManagement => {
                                 let router = safe_memory_state.router.load();
-                                if let Some(route) = router.find(&context.transaction.pan) {
+                                if let Some(route) = router.find(&context.transaction.fpan) {
                                     match &route.destination {
                                         crate::routing::RouteDestination::InternalCrdb => {
                                             if let Some(ch) = safe_memory_state.egress_channels.get("CRDB_DOMAIN_2") {
@@ -154,16 +208,23 @@ impl SwitchEngine {
                                         },
                                         crate::routing::RouteDestination::ExternalNode(node_id) => {
                                             let mut target_node = node_id.clone();
-                                            let mut is_online = if let Some(health) = safe_memory_state.node_health.get(&target_node) {
-                                                health.load(std::sync::atomic::Ordering::Relaxed)
-                                            } else { false };
+                                            // Health semantics: treat absent entry as ONLINE (fail-open).
+                                            // node_health is only populated after the network manager
+                                            // completes an 0800 echo cycle. Before that first probe we
+                                            // must assume the node is reachable — failing open is the
+                                            // correct industry default for payment switches.
+                                            let mut is_online = safe_memory_state.node_health
+                                                .get(&target_node)
+                                                .map(|h| h.load(std::sync::atomic::Ordering::Relaxed))
+                                                .unwrap_or(true); // absent → optimistically online
 
                                             if !is_online {
                                                 if let Some(failover) = &route.failover_node {
                                                     target_node = failover.clone();
-                                                    is_online = if let Some(health) = safe_memory_state.node_health.get(&target_node) {
-                                                        health.load(std::sync::atomic::Ordering::Relaxed)
-                                                    } else { false };
+                                                    is_online = safe_memory_state.node_health
+                                                        .get(&target_node)
+                                                        .map(|h| h.load(std::sync::atomic::Ordering::Relaxed))
+                                                        .unwrap_or(true); // absent → optimistically online
                                                 }
                                             }
 
@@ -172,7 +233,7 @@ impl SwitchEngine {
                                                     Some(ch.clone())
                                                 } else { None }
                                             } else {
-                                                // Trigger STIP fallback
+                                                // Both primary and confirmed failover down → STIP fallback
                                                 None
                                             }
                                         }
@@ -185,6 +246,31 @@ impl SwitchEngine {
                         if let Some(tx_channel) = target_egress {
                             metrics::increment_counter!("transactions_total", "status" => "approved");
                             metrics::histogram!("processing_latency_ms", start.elapsed().as_millis() as f64);
+
+                            // ── Phase 1: STAN Translation NAT (Outbound) ─────────────────────
+                            // Generate a globally-unique 6-digit egress STAN via a lock-free
+                            // AtomicU64 counter. Store the ingress→egress mapping so that the
+                            // bank reply loop can reverse-translate and wake the correct POS
+                            // terminal. The guard entry is also updated with the egress STAN so
+                            // the Reaper can GC the NAT on SLA timeout.
+                            let ingress_stan_for_nat = context.transaction.stan.0.clone();
+                            let egress_stan = format!(
+                                "{:06}",
+                                safe_memory_state.stan_counter
+                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                                    % 1_000_000
+                            );
+                            safe_memory_state.stan_nat.insert(
+                                egress_stan.clone(),
+                                ingress_stan_for_nat,
+                            );
+                            // Overwrite Field 11 in the egress frame
+                            context.transaction.stan = payment_proto::canonical::Stan(egress_stan.clone());
+                            // Record egress STAN in the guard entry so Reaper can GC nat on timeout
+                            if let Some(mut guard_entry) = idempotency_guard.get_mut(&key) {
+                                guard_entry.egress_stan = Some(egress_stan);
+                            }
+
                             match tx_channel.send_timeout(context, Duration::from_millis(100)) {
                                 Ok(_) => {
                                     _state = TxState::Routing;
@@ -194,7 +280,7 @@ impl SwitchEngine {
                                 Err(crossbeam::channel::SendTimeoutError::Disconnected(mut failed_ctx)) => {
 // ... remaining stip fallback ...
                                     // SAF STIP FALLBACK! Egress Offline
-                                    if let Ok(Some(cached_bytes)) = safe_stip_db.get(&failed_ctx.transaction.pan) {
+                                    if let Ok(Some(cached_bytes)) = safe_stip_db.get(&failed_ctx.transaction.fpan) {
                                         if let Ok(mut profile) = bincode::deserialize::<CardProfile>(&cached_bytes) {
                                             if profile.is_blocked {
                                                 failed_ctx.transaction.mti = bytes::Bytes::from_static(b"0110");
@@ -203,7 +289,7 @@ impl SwitchEngine {
                                             } else if profile.balance >= failed_ctx.transaction.amount as i64 {
                                                 // Deduct Balance Natively
                                                 profile.balance -= failed_ctx.transaction.amount as i64;
-                                                let _ = safe_stip_db.insert(&failed_ctx.transaction.pan, bincode::serialize(&profile).unwrap());
+                                                let _ = safe_stip_db.insert(&failed_ctx.transaction.fpan, bincode::serialize(&profile).unwrap());
                                                 
                                                 failed_ctx.transaction.mti = bytes::Bytes::from_static(b"0110");
                                                 failed_ctx.transaction.response_code = payment_proto::canonical::ResponseCode("00".to_string());
@@ -236,9 +322,25 @@ impl SwitchEngine {
                                 }
                             }
                         } else {
+                            // No matching egress channel found after routing. This means the node
+                            // is confirmed down and has no reachable failover. Send an immediate
+                            // decline (RC 05 — Do Not Honor) instead of silently dropping the
+                            // context, which would cause the reaper to fire a spurious timeout.
                             metrics::increment_counter!("transactions_total", "status" => "declined");
                             metrics::histogram!("processing_latency_ms", start.elapsed().as_millis() as f64);
-                            telemetry.log(TelemetryEvent::RoutingFailed { rrn });
+                            telemetry.log(TelemetryEvent::RoutingFailed { rrn: rrn.clone() });
+
+                            // Retrieve the responder from the idempotency guard and respond.
+                            if let Some(mut guarded) = idempotency_guard.get_mut(&key) {
+                                if let Some(responder) = guarded.responder.take() {
+                                    let mut decline = context.transaction.clone();
+                                    decline.mti = bytes::Bytes::from_static(b"0110");
+                                    decline.response_code = payment_proto::canonical::ResponseCode("05".to_string());
+                                    let _ = responder.send(decline);
+                                }
+                                guarded.state = NetworkState::Completed;
+                            }
+                            idempotency_guard.remove(&key);
                         }
                     } else {
                         // Failed to journal
@@ -270,11 +372,11 @@ impl SwitchEngine {
                     let telemetry_clone = telemetry2.clone();
 
                     tokio::spawn(async move {
-                        let pan_str = String::from_utf8_lossy(&context.transaction.pan).to_string();
+                        let pan_str = String::from_utf8_lossy(&context.transaction.fpan).to_string();
                         let pin_str = String::from_utf8_lossy(&context.transaction.pin_block).to_string();
 
                         let router = safe_state2.router.load();
-                        let route_opt = router.find(&context.transaction.pan);
+                        let route_opt = router.find(&context.transaction.fpan);
                         
                         let mut is_pin_valid = true;
                         let mut target_ch = None;
@@ -302,11 +404,17 @@ impl SwitchEngine {
                                     if let Ok(translated_pin) = thales_clone.translate_pin(&pin_str, &pan_str).await {
                                         context.transaction.pin_block = bytes::Bytes::from(translated_pin);
                                         let mut n = node_id.clone();
-                                        let mut ok = safe_state2.node_health.get(&n).map(|h| h.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(false);
+                                        let mut ok = safe_state2.node_health
+                                            .get(&n)
+                                            .map(|h| h.load(std::sync::atomic::Ordering::Relaxed))
+                                            .unwrap_or(true); // absent → optimistically online
                                         if !ok {
                                            if let Some(f) = &route.failover_node {
                                                 n = f.clone();
-                                                ok = safe_state2.node_health.get(&n).map(|h| h.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(false);
+                                                ok = safe_state2.node_health
+                                                    .get(&n)
+                                                    .map(|h| h.load(std::sync::atomic::Ordering::Relaxed))
+                                                    .unwrap_or(true); // absent → optimistically online
                                            }
                                         }
                                         if ok { target_ch = safe_state2.egress_channels.get(&n).map(|ch| ch.clone()) }
@@ -377,9 +485,16 @@ impl SwitchEngine {
                     // DashMap cannot hold get_mut() and remove() simultaneously on
                     // the same key — it would deadlock on the shard lock.
                     let mut did_reverse = false;
+                    // Capture the egress STAN while holding the RefMut so we can GC
+                    // the stan_nat entry after dropping the borrow.
+                    let mut nat_egress_stan_to_gc: Option<String> = None;
+
                     if let Some(mut entry) = reaper_guard.get_mut(&key) {
                         if entry.state == NetworkState::UpstreamSent {
                             entry.state = NetworkState::Reversed;
+                            // ── Phase 1: NAT Reaper GC — capture egress STAN before drop ──
+                            nat_egress_stan_to_gc = entry.egress_stan.take();
+
                             if let Some(responder) = entry.responder.take() {
                                 let mut timeout_reply = entry.transaction_data.clone();
                                 timeout_reply.mti = "0110".to_string();
@@ -396,7 +511,7 @@ impl SwitchEngine {
                             };
                             
                             let router = reaper_memory_state.router.load();
-                            if let Some(route) = router.find(&rev_ctx.transaction.pan) {
+                            if let Some(route) = router.find(&rev_ctx.transaction.fpan) {
                                 if let crate::routing::RouteDestination::ExternalNode(ref n) = route.destination {
                                     if let Some(ch) = reaper_memory_state.egress_channels.get(n) {
                                         let _ = ch.send(rev_ctx);
@@ -406,6 +521,12 @@ impl SwitchEngine {
                             did_reverse = true;
                         }
                     } // ← RefMut dropped here; shard lock released
+
+                    // GC the NAT entry for this timed-out transaction. This MUST happen
+                    // after the RefMut is dropped (above) to avoid DashMap shard deadlock.
+                    if let Some(egress_stan) = nat_egress_stan_to_gc {
+                        reaper_memory_state.stan_nat.remove(&egress_stan);
+                    }
 
                     // Immediately evict — lifecycle is terminal (Reversed + 0420 sent)
                     if did_reverse {
@@ -448,10 +569,24 @@ impl SwitchEngine {
             let reply_journaler = journaler.clone();
             let reply_telemetry = telemetry.clone();
             let rx = bank_reply_rx.clone();
+            // Clone GlobalState so each reply worker can access stan_nat for NAT reverse-translation.
+            let reply_guard_nat = Arc::clone(&memory_state);
             
             thread::spawn(move || {
                 for reply_tx in rx {
-                let key = format!("{}-{}-{}", reply_tx.rrn, reply_tx.stan, reply_tx.acquirer_id);
+                // ── Phase 1: STAN Translation NAT (Inbound) ───────────────────────────────
+                // The bank mirrored our *egress* STAN in Field 11. Reverse-translate it back
+                // to the original *ingress* STAN to reconstruct the idempotency guard key
+                // that the SEDA ingress worker inserted at transaction inception.
+                // DashMap::remove() is O(1) lock-free and simultaneously GCs the NAT entry.
+                let egress_stan_from_bank = reply_tx.stan.clone();
+                let ingress_stan = reply_guard_nat
+                    .stan_nat
+                    .remove(&egress_stan_from_bank)
+                    .map(|(_, ingress)| ingress)
+                    .unwrap_or_else(|| egress_stan_from_bank); // fallback: 0800 pings / CRDB txns have no NAT entry
+
+                let key = format!("{}-{}-{}", reply_tx.rrn, ingress_stan, reply_tx.acquirer_id);
 
                 // Track the terminal outcome so we can remove after dropping the borrow.
                 // DashMap: cannot call remove() while holding a get_mut() RefMut on the

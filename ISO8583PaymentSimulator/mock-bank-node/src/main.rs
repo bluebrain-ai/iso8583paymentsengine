@@ -4,7 +4,7 @@ use iso_dialect::{Base24Dialect, ConnexDialect, DialectRouter};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_util::codec::Framed;
-use payment_proto::canonical::{CanonicalTransaction, MessageClass, ResponseCode};
+use payment_proto::canonical::{UniversalPaymentEvent, MessageClass, ResponseCode};
 
 #[tokio::main]
 async fn main() {
@@ -110,7 +110,7 @@ async fn main() {
     println!("Shutting down Mock Bank Executable.");
 }
 
-fn process_bank_rules(canonical_tx: &CanonicalTransaction, dialect: &DialectRouter) -> Option<bytes::Bytes> {
+fn process_bank_rules(canonical_tx: &UniversalPaymentEvent, dialect: &DialectRouter) -> Option<bytes::Bytes> {
     let mut response = canonical_tx.clone();
 
     match canonical_tx.message_class {
@@ -133,7 +133,7 @@ fn process_bank_rules(canonical_tx: &CanonicalTransaction, dialect: &DialectRout
 
             if canonical_tx.amount > 50000 {
                 response.response_code = ResponseCode("51".to_string()); // Insufficient Funds
-            } else if canonical_tx.pan.ends_with(b"9999") {
+            } else if canonical_tx.fpan.ends_with(b"9999") {
                 response.response_code = ResponseCode("59".to_string()); // Suspected Fraud
             } else {
                 response.response_code = ResponseCode("00".to_string()); // Approved

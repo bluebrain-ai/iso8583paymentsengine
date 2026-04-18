@@ -5,13 +5,14 @@ pub mod journal;
 pub mod telemetry;
 pub mod state;
 pub mod hsm_client;
+pub mod tsp_vault;
 
 use payment_proto::Transaction;
 
-pub fn to_pb(canonical: &payment_proto::canonical::CanonicalTransaction) -> payment_proto::Transaction {
+pub fn to_pb(canonical: &payment_proto::canonical::UniversalPaymentEvent) -> payment_proto::Transaction {
     payment_proto::Transaction {
         mti: String::from_utf8_lossy(&canonical.mti).to_string(),
-        pan: String::from_utf8_lossy(&canonical.pan).to_string(),
+        pan: String::from_utf8_lossy(&canonical.fpan).to_string(),
         processing_code: canonical.processing_code.0.clone(),
         amount: canonical.amount as i64,
         stan: canonical.stan.0.clone(),
@@ -24,8 +25,8 @@ pub fn to_pb(canonical: &payment_proto::canonical::CanonicalTransaction) -> paym
     }
 }
 
-pub fn from_pb(pb: &payment_proto::Transaction) -> payment_proto::canonical::CanonicalTransaction {
-    payment_proto::canonical::CanonicalTransaction {
+pub fn from_pb(pb: &payment_proto::Transaction) -> payment_proto::canonical::UniversalPaymentEvent {
+    payment_proto::canonical::UniversalPaymentEvent {
         message_class: match pb.mti.as_str() {
             "0100" | "0110" => payment_proto::canonical::MessageClass::Authorization,
             "0200" | "0210" => payment_proto::canonical::MessageClass::Financial,
@@ -37,7 +38,10 @@ pub fn from_pb(pb: &payment_proto::Transaction) -> payment_proto::canonical::Can
         },
         transaction_type: payment_proto::canonical::TransactionType::Purchase,
         mti: bytes::Bytes::copy_from_slice(pb.mti.as_bytes()),
-        pan: bytes::Bytes::copy_from_slice(pb.pan.as_bytes()),
+        fpan: bytes::Bytes::copy_from_slice(pb.pan.as_bytes()),
+        dpan: None,
+        is_tokenized: false,
+        tavv_cryptogram: None,
         processing_code: payment_proto::canonical::ProcessingCode(pb.processing_code.clone()),
         amount: pb.amount as u64,
         stan: payment_proto::canonical::Stan(pb.stan.clone()),
@@ -47,6 +51,7 @@ pub fn from_pb(pb: &payment_proto::Transaction) -> payment_proto::canonical::Can
         response_code: payment_proto::canonical::ResponseCode(pb.response_code.clone()),
         acquirer_id: bytes::Bytes::copy_from_slice(pb.acquirer_id.as_bytes()),
         pin_block: bytes::Bytes::copy_from_slice(pb.pin_block.as_bytes()),
+        risk_score: 0, // proto Transaction has no risk_score; safe default
     }
 }
 

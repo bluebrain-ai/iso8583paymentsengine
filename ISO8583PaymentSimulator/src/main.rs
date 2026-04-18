@@ -19,6 +19,9 @@ struct StartRequest {
     volume: Option<usize>,
     concurrency: Option<usize>,
     dist: Option<Distribution>,
+    networks: Option<NetworkDistribution>,
+    modes: Option<EntryModeDistribution>,
+    dialects: Option<DialectDistribution>,
 }
 
 #[derive(Deserialize)]
@@ -26,6 +29,26 @@ struct Distribution {
     happy: Option<f64>,
     timeout: Option<f64>,
     decline: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct NetworkDistribution {
+    visa: Option<f64>,
+    mastercard: Option<f64>,
+    amex: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct EntryModeDistribution {
+    apple_pay: Option<f64>,
+    emv: Option<f64>,
+    pos: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct DialectDistribution {
+    base24: Option<f64>,
+    connex: Option<f64>,
 }
 
 async fn start_sim(
@@ -39,13 +62,27 @@ async fn start_sim(
     let volume = payload.volume.unwrap_or(100).max(1);
     let concurrency = payload.concurrency.unwrap_or(10).max(1);
     let dist = payload.dist.unwrap_or(Distribution {
-        happy: Some(0.8),
-        timeout: Some(0.1),
-        decline: Some(0.1),
+        happy: Some(0.8), timeout: Some(0.1), decline: Some(0.1)
+    });
+    let nets = payload.networks.unwrap_or(NetworkDistribution {
+        visa: Some(0.4), mastercard: Some(0.4), amex: Some(0.2)
+    });
+    let modes = payload.modes.unwrap_or(EntryModeDistribution {
+        apple_pay: Some(0.3), emv: Some(0.4), pos: Some(0.3)
+    });
+    let dialects = payload.dialects.unwrap_or(DialectDistribution {
+        base24: Some(0.5), connex: Some(0.5)
     });
 
-    let happy = dist.happy.unwrap_or(0.8);
-    let timeout = dist.timeout.unwrap_or(0.1);
+    let config = engine::DistConfig {
+        happy: dist.happy.unwrap_or(0.8),
+        timeout: dist.timeout.unwrap_or(0.1),
+        visa: nets.visa.unwrap_or(0.4),
+        mastercard: nets.mastercard.unwrap_or(0.4),
+        apple_pay: modes.apple_pay.unwrap_or(0.3),
+        emv: modes.emv.unwrap_or(0.4),
+        base24: dialects.base24.unwrap_or(0.5),
+    };
 
     // Reset Engine State
     state.status.running.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -71,8 +108,9 @@ async fn start_sim(
     for _ in 0..concurrency {
         let e = Arc::clone(&state);
         let rx = cancel_tx.subscribe();
+        let config_clone = config.clone();
         tokio::spawn(async move {
-            engine::run_worker(e, happy, timeout, rx).await;
+            engine::run_worker(e, config_clone, rx).await;
         });
     }
 
@@ -168,6 +206,6 @@ async fn main() {
     println!("║   Telemetry expected on HTTP :8080           ║");
     println!("╚══════════════════════════════════════════════╝\n");
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3005").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }

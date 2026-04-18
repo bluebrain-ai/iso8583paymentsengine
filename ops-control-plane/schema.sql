@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS stip_rules (
     network_id VARCHAR(50) NOT NULL,
     condition_type VARCHAR(100) NOT NULL,
     max_approval_amount BIGINT NOT NULL,
+    max_risk_score INTEGER NOT NULL DEFAULT 100,
     version INTEGER NOT NULL DEFAULT 1,
     valid_from DATETIME DEFAULT CURRENT_TIMESTAMP,
     valid_to DATETIME,
@@ -33,12 +34,12 @@ INSERT INTO crdb_records (pan_hash, daily_limit, status, version, is_live)
 SELECT '5555666677778888', 5000, 'Blocked', 1, 1 
 WHERE NOT EXISTS (SELECT 1 FROM crdb_records WHERE pan_hash = '5555666677778888');
 
-INSERT INTO stip_rules (network_id, condition_type, max_approval_amount, version, is_live)
-SELECT 'VISA', 'STAND_IN_APPROVAL', 5000, 1, 1
+INSERT INTO stip_rules (network_id, condition_type, max_approval_amount, max_risk_score, version, is_live)
+SELECT 'VISA', 'STAND_IN_APPROVAL', 5000, 85, 1, 1
 WHERE NOT EXISTS (SELECT 1 FROM stip_rules);
 
-INSERT INTO stip_rules (network_id, condition_type, max_approval_amount, version, is_live)
-SELECT 'MASTERCARD', 'STAND_IN_APPROVAL', 2500, 1, 1
+INSERT INTO stip_rules (network_id, condition_type, max_approval_amount, max_risk_score, version, is_live)
+SELECT 'MASTERCARD', 'STAND_IN_APPROVAL', 2500, 85, 1, 1
 WHERE NOT EXISTS (SELECT 1 FROM stip_rules WHERE network_id = 'MASTERCARD');
 
 CREATE TABLE IF NOT EXISTS routing_rules (
@@ -54,3 +55,19 @@ CREATE TABLE IF NOT EXISTS routing_rules (
 );
 
 CREATE INDEX IF NOT EXISTS idx_routing_live ON routing_rules(is_live);
+
+-- Default BIN prefix routes: broad coverage for Visa (4*) and Mastercard (5*)
+INSERT INTO routing_rules (bin_prefix, destination_type, target_node, failover_node, version, is_live)
+SELECT '4', 'ExternalNode', 'MockVisaNode', NULL, 1, 1
+WHERE NOT EXISTS (SELECT 1 FROM routing_rules WHERE bin_prefix = '4');
+
+INSERT INTO routing_rules (bin_prefix, destination_type, target_node, failover_node, version, is_live)
+SELECT '5', 'ExternalNode', 'MockMastercardNode', NULL, 1, 1
+WHERE NOT EXISTS (SELECT 1 FROM routing_rules WHERE bin_prefix = '5');
+
+-- Seed an 8-digit BIN example to validate longest-prefix-match depth.
+-- The BinTrie already supports arbitrary-length prefixes; this seed confirms
+-- an 8-digit prefix overrides a shorter 1-digit prefix for matching cards.
+INSERT INTO routing_rules (bin_prefix, destination_type, target_node, failover_node, version, is_live)
+SELECT '41111234', 'ExternalNode', 'MockVisaNode', NULL, 1, 1
+WHERE NOT EXISTS (SELECT 1 FROM routing_rules WHERE bin_prefix = '41111234');

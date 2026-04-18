@@ -3,11 +3,14 @@ use payment_proto::canonical::*;
 use bytes::Bytes;
 
 fn main() {
-    let mut tx = CanonicalTransaction {
+    let mut tx = UniversalPaymentEvent {
         message_class: MessageClass::Financial,
         transaction_type: TransactionType::Purchase,
         mti: Bytes::from_static(b"0200"),
-        pan: Bytes::from("4111111111111111"),
+        fpan: Bytes::from("4111111111111111"),
+        dpan: None,
+        is_tokenized: false,
+        tavv_cryptogram: None,
         processing_code: ProcessingCode("000000".to_string()),
         amount: 14312,
         stan: Stan("F82300".to_string()),
@@ -17,6 +20,7 @@ fn main() {
         response_code: ResponseCode(String::new()),
         acquirer_id: Bytes::from("123456"),
         pin_block: Bytes::new(),
+        risk_score: 0,
     };
 
     let pb_tx = switch_core::to_pb(&tx);
