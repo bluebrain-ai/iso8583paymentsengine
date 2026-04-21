@@ -165,4 +165,50 @@ impl HsmClient {
             }
         }
     }
+
+    pub async fn verify_mac(&self, mac: &str, pan: &str) -> Result<bool, HsmError> {
+        let header = self.next_header();
+
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.correlation_map.insert(header.clone(), resp_tx);
+
+        let formatted_pan = if pan.len() >= 12 {
+            &pan[pan.len() - 13..pan.len() - 1]
+        } else {
+            pan
+        };
+
+        let mut payload = String::new();
+        payload.push_str("MAK1234567890123");
+        payload.push_str(mac);
+        payload.push_str(formatted_pan);
+
+        let msg = ThalesMessage {
+            header: header.clone(),
+            command: "M0".to_string(), // Verify MAC command
+            payload,
+        };
+
+        if self.tx.send(msg).await.is_err() {
+            self.correlation_map.remove(&header);
+            return Err(HsmError("HSM Dispatch Channel Closed".to_string()));
+        }
+
+        match tokio::time::timeout(std::time::Duration::from_secs(2), resp_rx).await {
+            Ok(Ok(resp)) => {
+                if resp.command == "M1" && resp.payload.starts_with("00") {
+                    Ok(true)
+                } else if resp.command == "M1" && resp.payload.starts_with("05") {
+                    Ok(false)
+                } else {
+                    Err(HsmError("Invalid Verify MAC HSM Response".to_string()))
+                }
+            }
+            Ok(Err(_)) => Err(HsmError("Receiver dropped".to_string())),
+            Err(_) => {
+                self.correlation_map.remove(&header);
+                Err(HsmError("Timeout awaiting HSM M1 response".to_string()))
+            }
+        }
+    }
 }

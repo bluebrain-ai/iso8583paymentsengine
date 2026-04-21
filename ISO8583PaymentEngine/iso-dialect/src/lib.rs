@@ -131,6 +131,16 @@ fn universal_decode(raw: &[u8]) -> Result<UniversalPaymentEvent, ParseError> {
         acquirer_id: Bytes::new(),
         pin_block: Bytes::new(),
         risk_score: 0, // populated from RSK:NNN: TLV in Field 48 if present
+        requires_instant_clearing: false,
+        domestic_settlement_data: None,
+        source_account: None,
+        destination_account: None,
+        original_data_elements: None,
+        mac_data: None,
+        is_reversal: match mti {
+            b"0400" | b"0420" | b"1420" => true,
+            _ => false,
+        },
     };
 
     for field in 1..=64 {

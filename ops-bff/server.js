@@ -6,7 +6,8 @@ const app = express();
 
 // Upstream targets
 const SIMULATOR_TARGET = { host: '127.0.0.1', port: 3005 };
-const ORCHESTRATOR_TARGET = { host: '127.0.0.1', port: 9000 };
+const ORCHESTRATOR_TARGET = { host: '127.0.0.1', port: 9001 };
+const OPS_CONTROL_PLANE_TARGET = { host: '127.0.0.1', port: 3003 };
 
 /**
  * Generic reverse-proxy factory.
@@ -52,6 +53,9 @@ app.use('/sim/chaos', makeProxy(ORCHESTRATOR_TARGET, '/sim/chaos', { from: /^\/s
 app.use('/sim', makeProxy(SIMULATOR_TARGET));
 app.use('/api/dashmap', makeProxy(SIMULATOR_TARGET));
 app.use('/api/journal', makeProxy(SIMULATOR_TARGET));
+
+// ── Rust Control Plane (port 3003) ─────────────────────────────────────────
+app.use('/api/ledger', makeProxy(OPS_CONTROL_PLANE_TARGET));
 
 // ── Static UI (ops-ui/index.html, no caching) ────────────────────────────────
 app.use(express.static(path.join(__dirname, '../ops-ui'), {

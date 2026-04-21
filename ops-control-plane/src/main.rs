@@ -34,6 +34,11 @@ async fn main() {
         .await
         .expect("Failed to execute schema initialization.");
 
+    sqlx::query(include_str!("../seed.sql"))
+        .execute(&pool)
+        .await
+        .expect("Failed to execute seed data.");
+
     let app_state = Arc::new(AppState {
         db: pool,
         http_client: Client::new(),
@@ -54,6 +59,9 @@ async fn main() {
         .route("/api/publish/crdb", post(publish_crdb))
         .route("/api/publish/stip", post(publish_stip))
         .route("/api/publish/routes", post(publish_routes))
+        .route("/api/ledger/liquidity", get(get_ledger_liquidity))
+        .route("/api/ledger/transactions", get(get_ledger_transactions))
+        .route("/api/ledger/settle", post(trigger_settlement))
         .layer(cors)
         .with_state(app_state);
 
@@ -106,6 +114,23 @@ struct RouteRow {
     valid_from: DateTime<Utc>,
     valid_to: Option<DateTime<Utc>>,
     is_live: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+struct LedgerTx {
+    id: i32,
+    trace_stan: String,
+    trace_rrn: String,
+    masked_pan: String,
+    routing_bin: String,
+    source_account_id: Option<String>,
+    target_account_id: Option<String>,
+    principal_amount: i64,
+    fee_amount: i64,
+    fx_rate: f64,
+    status: String,
+    booking_timestamp: Option<String>,
+    institution_id: Option<String>,
 }
 
 // --- Request Payloads ---
@@ -460,4 +485,69 @@ async fn publish_routes(State(state): State<Arc<AppState>>) -> StatusCode {
         Ok(resp) if resp.status().is_success() => StatusCode::OK,
         _ => StatusCode::BAD_GATEWAY,
     }
+}
+
+// --- Ledger Endpoints ---
+
+#[derive(Serialize)]
+struct LiquidityRow {
+    institution_id: String,
+    status: String,
+    total: i64,
+}
+
+async fn get_ledger_liquidity(State(state): State<Arc<AppState>>) -> Json<Vec<LiquidityRow>> {
+    let rows: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT institution_id, status, SUM(principal_amount + fee_amount) as total FROM general_ledger GROUP BY institution_id, status"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let mut response = Vec::new();
+    for (institution_id, status, total) in rows {
+        response.push(LiquidityRow {
+            institution_id,
+            status,
+            total,
+        });
+    }
+
+    Json(response)
+}
+
+async fn get_ledger_transactions(State(state): State<Arc<AppState>>) -> Json<Vec<LedgerTx>> {
+    let rows = match sqlx::query_as::<_, LedgerTx>(
+        "SELECT id, trace_stan, trace_rrn, masked_pan, routing_bin, source_account_id, target_account_id, principal_amount, fee_amount, CAST(fx_rate as REAL) as fx_rate, status, booking_timestamp, institution_id FROM general_ledger ORDER BY booking_timestamp DESC LIMIT 200"
+    )
+    .fetch_all(&state.db)
+    .await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("SQLX FETCH ERROR: {:?}", e);
+            vec![]
+        }
+    };
+
+    Json(rows)
+}
+
+#[derive(Serialize)]
+struct SettleResponse {
+    rows_updated: u64,
+}
+
+async fn trigger_settlement(State(state): State<Arc<AppState>>) -> Json<SettleResponse> {
+    let result = sqlx::query(
+        "UPDATE general_ledger SET status = 'settled' WHERE status = 'shadow'"
+    )
+    .execute(&state.db)
+    .await;
+
+    let rows_updated = match result {
+        Ok(res) => res.rows_affected(),
+        Err(_) => 0,
+    };
+
+    Json(SettleResponse { rows_updated })
 }

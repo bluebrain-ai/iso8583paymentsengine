@@ -94,12 +94,39 @@ async fn main() {
 
     println!("[INFO] Dispatching Egress Real Clients globally...");
 
-    println!("[INFO] Deploying Edge Ingress Server bounded heavily on localhost:8000!");
-    if let Ok(listener) = tokio::net::TcpListener::bind("127.0.0.1:8000").await {
-        edge_ingress::server::run_server(listener, ingress_tx).await;
-    } else {
-        println!("[FATAL] Core SEDA Ingress failed to bind to port.");
-    }
+    println!("[INFO] Deploying Edge Ingress Servers across dialects...");
+
+    let std_tx = ingress_tx.clone();
+    tokio::spawn(async move {
+        if let Ok(listener_std) = tokio::net::TcpListener::bind("127.0.0.1:8000").await {
+            println!("[INFO] StandardDialect Ingress listening on 8000");
+            edge_ingress::server::run_server(listener_std, std_tx, Arc::new(payment_proto::iso_dialect::StandardDialect)).await;
+        } else {
+            println!("[FATAL] Failed to bind port 8000");
+        }
+    });
+
+    let int_tx = ingress_tx.clone();
+    tokio::spawn(async move {
+        if let Ok(listener_int) = tokio::net::TcpListener::bind("127.0.0.1:8001").await {
+            println!("[INFO] InteracDialect Ingress listening on 8001");
+            edge_ingress::server::run_server(listener_int, int_tx, Arc::new(payment_proto::dialects::interac::InteracDialect)).await;
+        } else {
+            println!("[FATAL] Failed to bind port 8001");
+        }
+    });
+
+    let uk_tx = ingress_tx.clone();
+    tokio::spawn(async move {
+        if let Ok(listener_uk) = tokio::net::TcpListener::bind("127.0.0.1:8002").await {
+            println!("[INFO] UkFpsDialect Ingress listening on 8002");
+            edge_ingress::server::run_server(listener_uk, uk_tx, Arc::new(payment_proto::dialects::uk_fps::UkFpsDialect)).await;
+        } else {
+            println!("[FATAL] Failed to bind port 8002");
+        }
+    });
+
+    std::future::pending::<()>().await;
 }
 
 async fn get_dashmap(State(app_state): State<AppState>) -> Json<serde_json::Value> {

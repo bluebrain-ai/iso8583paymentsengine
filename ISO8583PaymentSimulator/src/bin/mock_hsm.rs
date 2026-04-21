@@ -76,6 +76,10 @@ fn process_hsm_command(mut msg: ThalesMessage) -> ThalesMessage {
                 msg.payload = "01".to_string(); // Format error
             }
         }
+        "M0" => {
+            msg.command = "M1".to_string();
+            msg.payload = "00".to_string(); // Verify MAC Success
+        }
         _ => {
             msg.command = msg.command.chars().next().unwrap().to_string() + "B"; // Generic error mapping XA to XB
             msg.payload = "15".to_string(); // Unknown command

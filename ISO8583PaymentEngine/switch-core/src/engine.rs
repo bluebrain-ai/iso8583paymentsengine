@@ -4,6 +4,8 @@ use crate::telemetry::{TelemetryEvent, TelemetryLogger};
 use crossbeam::channel::{bounded, Receiver, Sender};
 use dashmap::{DashMap, mapref::entry::Entry};
 use crate::hsm_client::HsmClient;
+use crate::compliance::ComplianceGuard;
+use crate::ledger_worker::LedgerWorker;
 use prost::Message;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -24,6 +26,7 @@ pub struct SwitchEngine {
     pub stip_db: sled::Db,
     pub idempotency_guard: Arc<DashMap<String, ActiveTransaction>>,
     pub memory_state: Arc<crate::state::GlobalState>,
+    ledger_tx: Sender<payment_proto::canonical::UniversalPaymentEvent>,
 }
 
 impl SwitchEngine {
@@ -33,6 +36,7 @@ impl SwitchEngine {
         let (mastercard_egress_tx, mastercard_egress_rx) = bounded::<TransactionContext>(10000);
         let (hsm_tx, hsm_rx) = bounded::<TransactionContext>(10000);
         let (bank_reply_tx, bank_reply_rx) = bounded::<payment_proto::Transaction>(10000);
+        let (ledger_tx, ledger_rx) = bounded::<payment_proto::canonical::UniversalPaymentEvent>(10000);
 
         let idempotency_guard = Arc::new(DashMap::<String, ActiveTransaction>::new());
         let stip_db = sled::open("stip.db").unwrap();
@@ -40,6 +44,21 @@ impl SwitchEngine {
 
         memory_state.egress_channels.insert("MockVisaNode".to_string(), visa_egress_tx.clone());
         memory_state.egress_channels.insert("MockMastercardNode".to_string(), mastercard_egress_tx.clone());
+
+        // Pillar 5 Instantiations
+        let compliance_guard = Arc::new(ComplianceGuard::new());
+        let ledger_worker = Arc::new(LedgerWorker::new());
+        let db_path = "../ops-control-plane/ops.db".to_string(); // path to SQLite ops.db
+        
+        ComplianceGuard::start_polling(db_path.clone(), compliance_guard.clone());
+        ledger_worker.start_polling(db_path.clone());
+        ledger_worker.start_worker(db_path.clone(), ledger_rx);
+
+        // Spawn EOD settlement cron asynchronously
+        let settlement_db = db_path.clone();
+        tokio::spawn(async move {
+            crate::settlement_cron::SettlementEngine::start_cron(settlement_db).await;
+        });
 
         let threads = std::cmp::max(1, num_cpus::get() / 2);
         telemetry.log(TelemetryEvent::EngineStarted { workers: threads });
@@ -54,6 +73,8 @@ impl SwitchEngine {
             let telemetry = telemetry.clone();
             let safe_stip_db = stip_db.clone();
             let safe_memory_state = Arc::clone(&memory_state);
+            let safe_compliance_guard = compliance_guard.clone();
+            let safe_ledger_tx = ledger_tx.clone();
 
             thread::spawn(move || {
                 for mut context in ingress_rx {
@@ -71,6 +92,20 @@ impl SwitchEngine {
                     });
 
                     tracing::info!("Transaction parsed and validated");
+
+                    // ── Phase 2: Compliance Interceptor ───────────────────────────────────────
+                    if safe_compliance_guard.evaluate(&context) {
+                        metrics::increment_counter!("transactions_total", "status" => "declined");
+                        tracing::warn!("Compliance Interceptor blocked transaction {}", rrn);
+                        telemetry.log(TelemetryEvent::RoutingFailed { rrn: rrn.clone() });
+                        if let Some(responder) = context.responder.take() {
+                            let mut decline = context.transaction.clone();
+                            decline.mti = bytes::Bytes::from_static(b"0110");
+                            decline.response_code = payment_proto::canonical::ResponseCode("93".to_string()); // Violation of Law
+                            let _ = responder.send(decline);
+                        }
+                        continue;
+                    }
 
                     // TSP Detokenizer Interception
                     if context.transaction.is_tokenized {
@@ -152,7 +187,30 @@ impl SwitchEngine {
                         _ => {}
                     }
 
-
+                    if context.transaction.is_reversal {
+                        if let Some(ref odata) = context.transaction.original_data_elements {
+                            if odata.len() >= 20 {
+                                let orig_stan = &odata[4..10];
+                                for mut entry in idempotency_guard.iter_mut() {
+                                    if entry.transaction_data.stan == orig_stan {
+                                        let rrn_clone = entry.transaction_data.rrn.clone();
+                                        entry.state = NetworkState::ReversedPending;
+                                        let mut rev_event = context.transaction.clone();
+                                        rev_event.rrn = payment_proto::canonical::Rrn(rrn_clone);
+                                        let _ = safe_ledger_tx.send(rev_event);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        let mut rev_reply = context.transaction.clone();
+                        rev_reply.mti = bytes::Bytes::from_static(b"0430");
+                        rev_reply.response_code = payment_proto::canonical::ResponseCode("00".to_string());
+                        if let Some(responder) = context.responder.take() {
+                            let _ = responder.send(rev_reply);
+                        }
+                        continue;
+                    }
                     match idempotency_guard.entry(key.clone()) {
                         Entry::Occupied(_) => {
                             metrics::increment_counter!("transactions_total", "status" => "declined");
@@ -180,7 +238,7 @@ impl SwitchEngine {
                         }
                     }
 
-                    if !context.transaction.pin_block.is_empty() {
+                    if !context.transaction.pin_block.is_empty() || context.transaction.mac_data.is_some() {
                         _state = TxState::HSMPending;
                         let _ = hsm_tx.clone().send(context);
                         continue;
@@ -271,6 +329,10 @@ impl SwitchEngine {
                                 guard_entry.egress_stan = Some(egress_stan);
                             }
 
+                            let tx_for_ledger = context.transaction.clone();
+                            // Send to Ledger Async GL Sweep for all inbound captures
+                            let _ = safe_ledger_tx.send(tx_for_ledger);
+                            
                             match tx_channel.send_timeout(context, Duration::from_millis(100)) {
                                 Ok(_) => {
                                     _state = TxState::Routing;
@@ -387,37 +449,80 @@ impl SwitchEngine {
                                     let crdb = safe_state2.crdb.load();
                                     
                                     if let Some(card_record) = crdb.cards.get(&pan_str) {
-                                        if let Ok(success) = thales_clone.verify_pin(&pin_str, &pan_str, &card_record.pvv).await {
-                                            if !success {
+                                        let mut local_mac_valid = true;
+                                        if let Some(ref mac) = context.transaction.mac_data {
+                                            if let Ok(m_success) = thales_clone.verify_mac(mac, &pan_str).await {
+                                                if !m_success {
+                                                    local_mac_valid = false;
+                                                }
+                                            } else {
+                                                local_mac_valid = false;
+                                            }
+                                        }
+
+                                        if !pin_str.is_empty() {
+                                            if let Ok(success) = thales_clone.verify_pin(&pin_str, &pan_str, &card_record.pvv).await {
+                                                if !success || !local_mac_valid {
+                                                    is_pin_valid = false;
+                                                } else {
+                                                    target_ch = safe_state2.egress_channels.get("CRDB_DOMAIN_2").map(|ch| ch.clone());
+                                                }
+                                            } else {
+                                                is_pin_valid = false;
+                                            }
+                                        } else {
+                                            if !local_mac_valid {
                                                 is_pin_valid = false;
                                             } else {
                                                 target_ch = safe_state2.egress_channels.get("CRDB_DOMAIN_2").map(|ch| ch.clone());
                                             }
-                                        } else {
-                                            is_pin_valid = false;
                                         }
                                     } else {
                                         is_pin_valid = false;
                                     }
                                 },
                                 crate::routing::RouteDestination::ExternalNode(node_id) => {
-                                    if let Ok(translated_pin) = thales_clone.translate_pin(&pin_str, &pan_str).await {
-                                        context.transaction.pin_block = bytes::Bytes::from(translated_pin);
-                                        let mut n = node_id.clone();
-                                        let mut ok = safe_state2.node_health
-                                            .get(&n)
-                                            .map(|h| h.load(std::sync::atomic::Ordering::Relaxed))
-                                            .unwrap_or(true); // absent → optimistically online
-                                        if !ok {
-                                           if let Some(f) = &route.failover_node {
-                                                n = f.clone();
-                                                ok = safe_state2.node_health
-                                                    .get(&n)
-                                                    .map(|h| h.load(std::sync::atomic::Ordering::Relaxed))
-                                                    .unwrap_or(true); // absent → optimistically online
-                                           }
+                                    let mut local_mac_valid = true;
+                                    if let Some(ref mac) = context.transaction.mac_data {
+                                        if let Ok(m_success) = thales_clone.verify_mac(mac, &pan_str).await {
+                                            if !m_success {
+                                                local_mac_valid = false;
+                                            }
+                                        } else {
+                                            local_mac_valid = false;
                                         }
-                                        if ok { target_ch = safe_state2.egress_channels.get(&n).map(|ch| ch.clone()) }
+                                    }
+
+                                    if !local_mac_valid {
+                                        is_pin_valid = false;
+                                    } else {
+                                        let mut proceed = true;
+                                        if !pin_str.is_empty() {
+                                            if let Ok(translated_pin) = thales_clone.translate_pin(&pin_str, &pan_str).await {
+                                                context.transaction.pin_block = bytes::Bytes::from(translated_pin);
+                                            } else {
+                                                proceed = false;
+                                                is_pin_valid = false;
+                                            }
+                                        }
+
+                                        if proceed {
+                                            let mut n = node_id.clone();
+                                            let mut ok = safe_state2.node_health
+                                                .get(&n)
+                                                .map(|h| h.load(std::sync::atomic::Ordering::Relaxed))
+                                                .unwrap_or(true); 
+                                            if !ok {
+                                               if let Some(f) = &route.failover_node {
+                                                    n = f.clone();
+                                                    ok = safe_state2.node_health
+                                                        .get(&n)
+                                                        .map(|h| h.load(std::sync::atomic::Ordering::Relaxed))
+                                                        .unwrap_or(true); 
+                                               }
+                                            }
+                                            if ok { target_ch = safe_state2.egress_channels.get(&n).map(|ch| ch.clone()) }
+                                        }
                                     }
                                 }
                             }
@@ -643,6 +748,7 @@ impl SwitchEngine {
             stip_db,
             idempotency_guard,
             memory_state,
+            ledger_tx,
         }
     }
 

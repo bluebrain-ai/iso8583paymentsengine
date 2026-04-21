@@ -271,8 +271,13 @@
       const [pos, setPos]           = useState(30);
 
       // Dialect
-      const [base24, setBase24]     = useState(50);
-      const [connex, setConnex]     = useState(50);
+      const [base24, setBase24]     = useState(25);
+      const [connex, setConnex]     = useState(25);
+      const [interac, setInterac]   = useState(25);
+      const [ukFps, setUkFps]       = useState(25);
+      const [iso1987, setIso1987]   = useState(0);
+      const [iso1993, setIso1993]   = useState(0);
+      const [iso2003, setIso2003]   = useState(0);
 
       const [err,    setErr]        = useState(null);
       const status = usePoll('/sim/status', 800);
@@ -285,7 +290,7 @@
         const tot = (happy + tout + decl) || 1;
         const netTot = (visa + mc + amex) || 1;
         const modeTot = (applePay + emv + pos) || 1;
-        const dialTot = (base24 + connex) || 1;
+        const dialTot = (base24 + connex + interac + ukFps + iso1987 + iso1993 + iso2003) || 1;
 
         const r = await fetch('/sim/start', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -294,7 +299,7 @@
             dist: { happy: happy/tot, timeout: tout/tot, decline: decl/tot },
             networks: { visa: visa/netTot, mastercard: mc/netTot, amex: amex/netTot },
             modes: { apple_pay: applePay/modeTot, emv: emv/modeTot, pos: pos/modeTot },
-            dialects: { base24: base24/dialTot, connex: connex/dialTot }
+            dialects: { base24: base24/dialTot, connex: connex/dialTot, interac: interac/dialTot, uk_fps: ukFps/dialTot, iso_1987: iso1987/dialTot, iso_1993: iso1993/dialTot, iso_2003: iso2003/dialTot }
           }),
         });
         if (!r.ok) setErr((await r.json()).error ?? 'Failed');
@@ -379,6 +384,11 @@
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <SliderRow label="Base24" val={base24} set={setBase24} color="var(--cyan)" />
                   <SliderRow label="Connex" val={connex} set={setConnex} color="var(--emerald)" />
+                  <SliderRow label="Interac" val={interac} set={setInterac} color="var(--amber)" />
+                  <SliderRow label="UK FPS" val={ukFps} set={setUkFps} color="var(--indigo)" />
+                  <SliderRow label="ISO 1987" val={iso1987} set={setIso1987} color="var(--purple)" />
+                  <SliderRow label="ISO 1993" val={iso1993} set={setIso1993} color="var(--blue)" />
+                  <SliderRow label="ISO 2003" val={iso2003} set={setIso2003} color="var(--red)" />
                 </div>
               </div>
             </div>
@@ -745,10 +755,63 @@
         : s === 'timeout' ? 'TO — Network Timeout'
         : '05 — Do Not Honor';
 
+      const ISO_FIELDS = {
+        1: "Secondary Bitmap",
+        2: "Primary Account Number (PAN)",
+        3: "Processing Code",
+        4: "Amount, Transaction",
+        7: "Transmission Date & Time",
+        11: "System Trace Audit Number (STAN)",
+        12: "Time, Local Transaction",
+        13: "Date, Local Transaction",
+        14: "Date, Expiration",
+        22: "Point of Service Entry Mode",
+        32: "Acquiring Institution ID Code",
+        37: "Retrieval Reference Number",
+        39: "Response Code",
+        41: "Card Acceptor Terminal ID",
+        42: "Card Acceptor ID Code",
+        43: "Card Acceptor Name/Location",
+        48: "Additional Data - Private",
+        49: "Currency Code, Transaction",
+        52: "Personal Identification Number Data",
+        64: "Message Authentication Code (MAC)",
+        90: "Original Data Elements",
+        102: "Account Identification 1",
+        103: "Account Identification 2",
+        128: "Message Authentication Code (MAC)"
+      };
+
+      const hexToBin = (hex) => {
+          let bin = '';
+          for(let i=0; i<hex.length; i++) {
+              let parsed = parseInt(hex[i], 16);
+              if (!isNaN(parsed)) {
+                  bin += parsed.toString(2).padStart(4, '0');
+              } else {
+                  bin += '0000';
+              }
+          }
+          return bin;
+      };
+
+      let bitsStr = '';
+      if (sel && sel.rawIsoHex) {
+          // Assume MTI is 4 bytes ASCII -> 8 chars hex.
+          let primaryHex = sel.rawIsoHex.substring(8, 24);
+          bitsStr = hexToBin(primaryHex);
+          if (bitsStr[0] === '1') {
+              let secondaryHex = sel.rawIsoHex.substring(24, 40);
+              bitsStr += hexToBin(secondaryHex);
+          } else {
+              bitsStr = bitsStr.padEnd(128, '0');
+          }
+      }
+
       return (
-        <div className="card" style={{ flexDirection: 'row' }}>
+        <div className="card" style={{ flexDirection: 'column' }}>
           {/* Table */}
-          <div style={{ flex: '0 0 52%', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <div className="card-header">
               <span className="card-title">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" strokeWidth="2" strokeLinecap="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
@@ -760,12 +823,12 @@
               <table className="tx-table">
                 <thead>
                   <tr>
-                    <th>Status</th><th>ID</th><th>Network</th><th>Type</th><th style={{ textAlign: 'right' }}>RT</th><th style={{ textAlign: 'right' }}>Amount</th>
+                    <th>Status</th><th>ID</th><th>Network</th><th>Type</th><th>Dialect</th><th style={{ textAlign: 'right' }}>RT</th><th style={{ textAlign: 'right' }}>Amount</th>
                   </tr>
                 </thead>
                 <tbody>
                   {history.length === 0 ? (
-                    <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--muted)', padding: '30px', fontStyle: 'italic' }}>No transactions yet</td></tr>
+                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--muted)', padding: '30px', fontStyle: 'italic' }}>No transactions yet</td></tr>
                   ) : history.map(tx => (
                     <tr key={tx.id} className={selId === tx.id ? 'selected' : ''} onClick={() => setSelId(tx.id)}>
                       <td>
@@ -785,6 +848,9 @@
                       <td style={{ fontSize: 10 }}>
                         <span style={{ color: statusColor(tx.status), background: 'var(--surface2)', border: `1px solid ${statusColor(tx.status)}30`, borderRadius: 4, padding: '1px 6px', fontSize: 10 }}>{tx.entryMode || tx.type}</span>
                       </td>
+                      <td style={{ fontSize: 10 }}>
+                        <span style={{ color: 'var(--purple)', background: 'var(--surface2)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: 4, padding: '1px 6px', fontSize: 10 }}>{tx.dialect || 'Base24'}</span>
+                      </td>
                       <td className="mono" style={{ textAlign: 'right', color: tx.totalDurationMs > 5000 ? 'var(--amber)' : 'var(--muted)' }}>{tx.totalDurationMs}ms</td>
                       <td className="mono" style={{ textAlign: 'right', color: 'var(--text)' }}>${tx.amount}</td>
                     </tr>
@@ -794,45 +860,108 @@
             </div>
           </div>
 
-          {/* Inspector Detail */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <div className="card-header">
-              <span className="card-title">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                Inspector
-              </span>
-              {sel && <span style={{ fontSize: 10, fontFamily: "'JetBrains Mono'", fontWeight: 700, color: statusColor(sel.status), background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 7px' }}>{sel.status.toUpperCase()}</span>}
-            </div>
-            <div className="card-body" style={{ padding: 14 }}>
-              {!sel ? (
-                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', gap: 8, opacity: 0.5 }}>
-                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                  <span style={{ fontSize: 11 }}>Select a transaction</span>
+          {/* Modal Inspector Detail */}
+          {sel && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-[#121212] border border-white/10 w-full max-w-4xl rounded-2xl p-6 shadow-2xl relative flex flex-col max-h-[90vh]">
+                <button onClick={() => setSelId(null)} className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors">
+                  <Icon name="X" className="w-5 h-5" />
+                </button>
+                <div className="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
+                  <div className={`p-2 rounded-lg ${sel.status === 'success' ? 'bg-emerald-900/40 text-emerald-400' : sel.status === 'timeout' ? 'bg-amber-900/40 text-amber-400' : 'bg-red-900/40 text-red-400'}`}>
+                    <Icon name="Search" className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold flex items-center gap-2 text-white m-0">
+                      ISO-8583 Message Inspector
+                    </h3>
+                    <p className="text-xs text-gray-400 mt-1">Transaction: {sel.id}</p>
+                  </div>
                 </div>
-              ) : (
-                <div>
-                  {[
-                    ['Transaction ID',   sel.id,                        true,  null],
-                    ['Status Message',   statusMsg(sel.status),         false, statusColor(sel.status)],
-                    ['Network',          sel.network || '---',          false, 'var(--cyan)'],
-                    ['Entry Mode',       sel.entryMode || '---',        false, null],
-                    ['Protocol',         sel.dialect || '---',          false, 'var(--purple)'],
-                    ['Profile',          sel.type,                      false, 'var(--muted)'],
-                    ['Amount',           `$${sel.amount}`,              true,  null],
-                    ['Round Trip',       `${sel.totalDurationMs}ms`,    true,  sel.totalDurationMs > 5000 ? 'var(--amber)' : 'var(--emerald)'],
-                    ['Timestamp',        new Date(sel.timestamp).toLocaleString(), false, null],
-                  ].map(([label, value, mono, color]) => (
-                    <div key={label}>
-                      <div className="field-label">{label}</div>
-                      <div className="field-value" style={{ fontFamily: mono ? "'JetBrains Mono', monospace" : undefined, color: color ?? undefined }}>{value}</div>
+
+                <div className="overflow-y-auto flex-1 pr-2 custom-scrollbar">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                      {[
+                        ['Status Message',   statusMsg(sel.status),         false, statusColor(sel.status)],
+                        ['Network',          sel.network || '---',          false, 'var(--cyan)'],
+                        ['Entry Mode',       sel.entryMode || '---',        false, null],
+                        ['Protocol',         sel.dialect || '---',          false, 'var(--purple)'],
+                        ['Profile',          sel.type,                      false, 'var(--muted)'],
+                        ['Amount',           `$${sel.amount}`,              true,  null],
+                        ['Round Trip',       `${sel.totalDurationMs}ms`,    true,  sel.totalDurationMs > 5000 ? 'var(--amber)' : 'var(--emerald)'],
+                        ['Timestamp',        new Date(sel.timestamp).toLocaleString(), false, null],
+                        ...(sel.sourceAccount ? [['Source Account', sel.sourceAccount, true, 'var(--emerald)']] : []),
+                        ...(sel.destinationAccount ? [['Destination', sel.destinationAccount, true, 'var(--amber)']] : []),
+                      ].map(([label, value, mono, color], idx) => (
+                        <div key={idx} className="bg-black/40 border border-white/5 rounded-xl p-3">
+                          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 font-semibold">{label}</div>
+                          <div style={{ fontFamily: mono ? "'JetBrains Mono', monospace" : undefined, color: color ?? 'var(--text)' }} className="text-sm font-medium">{value}</div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                  <div className="field-label">ISO-8583 Raw Hex (Ingress)</div>
-                  <div className="code-block c-success">{sel.rawIsoHex}</div>
+
+                    <div className="mb-6">
+                        <h4 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2 border-b border-white/10 pb-2">
+                           <Icon name="ListChecks" className="w-4 h-4 text-cyan-400" />
+                           ISO-8583 Data Elements
+                        </h4>
+                        <div className="flex flex-col gap-1 max-h-80 overflow-y-auto custom-scrollbar pr-2 bg-black/40 rounded-xl p-2 border border-white/5">
+                             {Array.from({ length: bitsStr.length > 64 && bitsStr[0] === '1' ? 128 : 64 }).map((_, idx) => {
+                                const bit = idx + 1;
+                                const active = bitsStr[idx] === '1';
+                                const fname = ISO_FIELDS[bit] || 'Standard / Proprietary Field Segment';
+                                
+                                let val = "";
+                                if (active) {
+                                    if (bit === 1) val = "<Secondary Bitmap Attached>";
+                                    else if (bit === 2) val = sel.sourceAccount ? `***${sel.sourceAccount.slice(-4)}` : "<Masked PAN>";
+                                    else if (bit === 3) val = sel.type ? `Type: ${sel.type}` : "Generic ProcCode";
+                                    else if (bit === 4) val = `$${sel.amount}`;
+                                    else if (bit === 7) val = new Date(sel.timestamp).toISOString();
+                                    else if (bit === 11) val = sel.id.substring(0, 6);
+                                    else if (bit === 22) val = sel.entryMode || 'Unknown';
+                                    else if (bit === 39) val = sel.status === 'success' ? '00 - Approved' : (sel.status === 'timeout' ? 'TO - Timeout' : '05 - Declined');
+                                    else if (bit === 49) val = "840 (USD)";
+                                    else if (bit === 64 || bit === 128) val = "<Cryptographic MAC Hash>";
+                                    else if (bit === 90) val = "<Original Correlation STAN>";
+                                    else if (bit === 102) val = sel.sourceAccount || "<Account Hash>";
+                                    else if (bit === 103) val = sel.destinationAccount || "<Account Hash>";
+                                    else val = "[Variable Binary Sequence]";
+                                }
+
+                                return (
+                                    <div key={bit} className={`flex items-center gap-4 p-2 rounded-lg border transition-all ${active ? 'bg-white/10 border-white/20 shadow-[0_0_10px_rgba(255,255,255,0.02)]' : 'bg-transparent border-transparent opacity-40 hover:opacity-100'}`}>
+                                        <div className="flex items-center justify-center shrink-0 w-6">
+                                            <input type="checkbox" checked={active} readOnly className="w-4 h-4 accent-cyan-500 rounded bg-black border-gray-700 pointer-events-none" />
+                                        </div>
+                                        <div className="flex-1 min-w-0 flex items-center gap-3">
+                                            <div className="text-xs font-mono font-bold w-14 shrink-0 text-gray-500">Bit {bit.toString().padStart(3, '0')}</div>
+                                            <div className={`text-sm font-semibold truncate ${active ? 'text-gray-100' : 'text-gray-500'}`}>{fname}</div>
+                                        </div>
+                                        {active && (
+                                            <div className="text-right pl-4 border-l border-white/10">
+                                                <div className="text-xs text-cyan-300 font-mono whitespace-nowrap" style={{ textShadow: '0 0 10px rgba(103,232,249,0.2)' }}>{val}</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                             })}
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2 border-b border-white/10 pb-2">
+                           <Icon name="Binary" className="w-4 h-4 text-amber-400" />
+                           Raw OSI Layer 7 Capture
+                        </h4>
+                        <div className="bg-black border border-white/10 rounded-xl p-4 overflow-x-auto">
+                            <span className="font-mono text-xs text-amber-400/90 break-all leading-relaxed whitespace-pre-wrap">{sel.rawIsoHex}</span>
+                        </div>
+                    </div>
                 </div>
-              )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       );
     }
@@ -945,27 +1074,50 @@
       const [publishingCrdb, setPublishingCrdb] = useState(false);
       const [publishingStip, setPublishingStip] = useState(false);
       const [publishingRoutes, setPublishingRoutes] = useState(false);
+      const [publishingSanctions, setPublishingSanctions] = useState(false);
+      const [publishingFees, setPublishingFees] = useState(false);
+      const [publishingCoa, setPublishingCoa] = useState(false);
       const [toast, setToast] = useState(null);
       const [crdbRecords, setCrdbRecords] = useState([]);
       const [stipRules, setStipRules] = useState([]);
       const [routingRules, setRoutingRules] = useState([]);
+      
+      const [sanctions, setSanctions] = useState([]);
+      const [feeMatrix, setFeeMatrix] = useState([]);
+      const [coa, setCoa] = useState([]);
+      const [ledgerTxs, setLedgerTxs] = useState([]);
+      const [settling, setSettling] = useState(false);
+      
       const [loading, setLoading] = useState(true);
+      const [cpTab, setCpTab] = useState('rules');
 
       const [showModal, setShowModal] = useState(false);
+      const [showSanctionModal, setShowSanctionModal] = useState(false);
+      const [showFeeModal, setShowFeeModal] = useState(false);
       const [newRoute, setNewRoute] = useState({ bin_prefix: '', destination_type: 'ExternalNode', target_node: 'MockVisaNode', failover_node: '' });
+      const [newSanction, setNewSanction] = useState({ rule_type: 'Currency', target_value: '', enforcement_action: 'Block' });
+      const [newFee, setNewFee] = useState({ mcc: '', bin_prefix: '', base_pct: 0.015, flat_fee_cents: 10, fx_markup_pct: 0.02 });
 
       const fetchState = async () => {
         setLoading(true);
         try {
-          const [crdbRes, stipRes, routesRes] = await Promise.all([
+          const [crdbRes, stipRes, routesRes, sanctionsRes, feesRes, coaRes, ledgerRes] = await Promise.all([
             fetch("http://127.0.0.1:3003/api/crdb").catch(() => null),
             fetch("http://127.0.0.1:3003/api/stip").catch(() => null),
             fetch("http://127.0.0.1:3003/api/routes").catch(() => null),
+            fetch("http://127.0.0.1:3003/api/sanctions").catch(() => null),
+            fetch("http://127.0.0.1:3003/api/fees").catch(() => null),
+            fetch("http://127.0.0.1:3003/api/coa").catch(() => null),
+            fetch("http://127.0.0.1:3003/api/ledger/transactions").catch(() => null),
           ]);
           
           if (crdbRes && crdbRes.ok) setCrdbRecords(await crdbRes.json());
           if (stipRes && stipRes.ok) setStipRules(await stipRes.json());
           if (routesRes && routesRes.ok) setRoutingRules(await routesRes.json());
+          if (sanctionsRes && sanctionsRes.ok) setSanctions(await sanctionsRes.json());
+          if (feesRes && feesRes.ok) setFeeMatrix(await feesRes.json());
+          if (coaRes && coaRes.ok) setCoa(await coaRes.json());
+          if (ledgerRes && ledgerRes.ok) setLedgerTxs(await ledgerRes.json());
         } catch (e) {
           console.error(e);
         } finally {
@@ -998,6 +1150,48 @@
         setTimeout(() => setToast(null), 3000);
       };
 
+      const handleAddSanction = async (e) => {
+        e.preventDefault();
+        try {
+          const res = await fetch("http://127.0.0.1:3003/api/sanctions", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(newSanction)
+          });
+          if (res.ok) {
+            setToast({ message: "Sanction Guard Updated", type: "success" });
+            fetchState();
+            setShowSanctionModal(false);
+          }
+        } catch (e) {
+          setToast({ message: "Failed to create sanction", type: "error" });
+        }
+        setTimeout(() => setToast(null), 3000);
+      };
+
+      const handleAddFee = async (e) => {
+        e.preventDefault();
+        try {
+          const res = await fetch("http://127.0.0.1:3003/api/fees", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              mcc: newFee.mcc || null,
+              bin_prefix: newFee.bin_prefix || null,
+              base_pct: parseFloat(newFee.base_pct),
+              flat_fee_cents: parseInt(newFee.flat_fee_cents, 10),
+              fx_markup_pct: parseFloat(newFee.fx_markup_pct)
+            })
+          });
+          if (res.ok) {
+            setToast({ message: "Fee Tier Temporally Stored", type: "success" });
+            fetchState();
+            setShowFeeModal(false);
+          }
+        } catch (e) {
+          setToast({ message: "Failed to create fee tier", type: "error" });
+        }
+        setTimeout(() => setToast(null), 3000);
+      };
+
       useEffect(() => {
         fetchState();
       }, []);
@@ -1015,6 +1209,22 @@
           setToast({ message: "Gateway Offline", type: "error" });
         }
         setPublishing(false);
+        setTimeout(() => setToast(null), 5000);
+      };
+
+      const handleSettle = async () => {
+        setSettling(true);
+        try {
+          const res = await fetch(`http://127.0.0.1:3003/api/ledger/settle`, { method: "POST" });
+          if (res.ok) {
+            const data = await res.json();
+            setToast({ message: `Midnight Sweep Completed: ${data.rows_updated} transaction(s) cleared`, type: "success" });
+            fetchState();
+          }
+        } catch (err) {
+          setToast({ message: "Engine Offline", type: "error" });
+        }
+        setSettling(false);
         setTimeout(() => setToast(null), 5000);
       };
 
@@ -1041,10 +1251,29 @@
             </div>
           </header>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <section className="glass rounded-2xl p-6 relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-600/50 to-transparent" />
-              <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center gap-6 mb-8 border-b border-white/10 px-2 pb-0">
+            <button 
+              onClick={() => setCpTab('rules')} 
+              className={`pb-4 px-2 tracking-wide font-medium text-sm transition-all border-b-2 outline-none ${cpTab === 'rules' ? 'text-white border-red-500' : 'text-gray-500 border-transparent hover:text-gray-300'}`}>
+              Matrix & CRDB Rules
+            </button>
+            <button 
+              onClick={() => setCpTab('treasury')} 
+              className={`pb-4 px-2 tracking-wide font-medium text-sm transition-all border-b-2 outline-none ${cpTab === 'treasury' ? 'text-white border-emerald-500' : 'text-gray-500 border-transparent hover:text-gray-300'}`}>
+              Treasury & Liquidity
+            </button>
+            <button 
+              onClick={() => setCpTab('settlement')} 
+              className={`pb-4 px-2 tracking-wide font-medium text-sm transition-all border-b-2 outline-none ${cpTab === 'settlement' ? 'text-white border-purple-500' : 'text-gray-500 border-transparent hover:text-gray-300'}`}>
+              Settlement Engine
+            </button>
+          </div>
+
+          {cpTab === 'rules' ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <section className="glass rounded-2xl p-6 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-600/50 to-transparent" />
+                <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-semibold text-white flex items-center gap-2">
                   <Icon name="CheckCircle2" className="w-5 h-5 text-gray-400" /> Active Switch Rules
                 </h2>
@@ -1234,7 +1463,188 @@
                 )}
               </div>
             </section>
+
+            <section className="glass rounded-2xl p-6 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-600/50 to-transparent" />
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                  <Icon name="ShieldAlert" className="w-5 h-5 text-gray-400" /> Compliance & OFAC Guard
+                </h2>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowSanctionModal(true)} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-sm border border-white/10 transition-colors flex items-center gap-2">
+                    <Icon name="Plus" className="w-4 h-4" /> Add Sanction
+                  </button>
+                  <button 
+                    onClick={() => handlePublish('sanctions', setPublishingSanctions)}
+                    disabled={publishingSanctions}
+                    className="px-3 py-1.5 bg-red-900/30 hover:bg-red-800/40 text-red-100 rounded-lg border border-red-500/30 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50"
+                  >
+                    {publishingSanctions ? <Icon name="RotateCcw" className="w-3 h-3 animate-spin" /> : <Icon name="Cpu" className="w-3 h-3" />}
+                    Publish Live
+                  </button>
+                </div>
+              </div>
+              <div className="bg-[#121212] border border-white/5 rounded-xl overflow-x-auto">
+                <table className="w-full text-sm text-left whitespace-nowrap">
+                  <thead className="text-xs text-gray-500 uppercase bg-[#181818]">
+                    <tr><th className="px-4 py-3">Rule Type</th><th className="px-4 py-3">Target Value</th><th className="px-4 py-3">Action</th></tr>
+                  </thead>
+                  <tbody>
+                    {sanctions.length === 0 ? <tr><td colSpan="3" className="text-center py-4 text-gray-500">No sanctions configured.</td></tr> : sanctions.map((s, i) => (
+                      <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02]">
+                        <td className="px-4 py-3 font-medium text-gray-300">{s.rule_type}</td>
+                        <td className="px-4 py-3 font-mono text-gray-400">{s.target_value}</td>
+                        <td className="px-4 py-3"><span className="text-red-400 bg-red-900/20 px-2 py-0.5 rounded text-xs border border-red-900/50">{s.enforcement_action}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="glass rounded-2xl p-6 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-600/50 to-transparent" />
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                  <Icon name="Banknote" className="w-5 h-5 text-gray-400" /> Dynamic Fee Engine
+                </h2>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowFeeModal(true)} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-sm border border-white/10 transition-colors flex items-center gap-2">
+                    <Icon name="Plus" className="w-4 h-4" /> Update Fee Tier
+                  </button>
+                  <button 
+                    onClick={() => handlePublish('fees', setPublishingFees)}
+                    disabled={publishingFees}
+                    className="px-3 py-1.5 bg-red-900/30 hover:bg-red-800/40 text-red-100 rounded-lg border border-red-500/30 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50"
+                  >
+                    {publishingFees ? <Icon name="RotateCcw" className="w-3 h-3 animate-spin" /> : <Icon name="Cpu" className="w-3 h-3" />}
+                    Publish Live
+                  </button>
+                </div>
+              </div>
+              <div className="bg-[#121212] border border-white/5 rounded-xl overflow-x-auto">
+                <table className="w-full text-sm text-left whitespace-nowrap">
+                  <thead className="text-xs text-gray-500 uppercase bg-[#181818]">
+                    <tr><th className="px-4 py-3">MCC / BIN</th><th className="px-4 py-3">Base %</th><th className="px-4 py-3">Flat Cents</th><th className="px-4 py-3">FX %</th></tr>
+                  </thead>
+                  <tbody>
+                    {feeMatrix.length === 0 ? <tr><td colSpan="4" className="text-center py-4 text-gray-500">No fee rules configured.</td></tr> : feeMatrix.map((f, i) => (
+                      <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02]">
+                        <td className="px-4 py-3 font-medium text-gray-300">{f.mcc || f.bin_prefix || 'DEFAULT'}</td>
+                        <td className="px-4 py-3 font-mono text-cyan-400">{(f.base_pct * 100).toFixed(2)}%</td>
+                        <td className="px-4 py-3 font-mono text-emerald-400">{f.flat_fee_cents}¢</td>
+                        <td className="px-4 py-3 font-mono text-purple-400">{(f.fx_markup_pct * 100).toFixed(2)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="glass rounded-2xl p-6 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-600/50 to-transparent" />
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                  <Icon name="BookOpen" className="w-5 h-5 text-gray-400" /> Chart of Accounts (CoA)
+                </h2>
+                <button 
+                  onClick={() => handlePublish('coa', setPublishingCoa)}
+                  disabled={publishingCoa}
+                  className="px-3 py-1.5 bg-red-900/30 hover:bg-red-800/40 text-red-100 rounded-lg border border-red-500/30 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50"
+                >
+                  {publishingCoa ? <Icon name="RotateCcw" className="w-3 h-3 animate-spin" /> : <Icon name="Cpu" className="w-3 h-3" />}
+                  Publish Live
+                </button>
+              </div>
+              <div className="bg-[#121212] border border-white/5 rounded-xl overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-gray-500 uppercase bg-[#181818]">
+                    <tr><th className="px-4 py-3">Inst. / CCY</th><th className="px-4 py-3">Vostro</th><th className="px-4 py-3">Nostro</th></tr>
+                  </thead>
+                  <tbody>
+                    {coa.length === 0 ? <tr><td colSpan="3" className="text-center py-4 text-gray-500">No accounts configured.</td></tr> : coa.map((c, i) => (
+                      <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02]">
+                        <td className="px-4 py-3 font-medium text-gray-300">{c.institution_id} <span className="text-[10px] text-gray-500">{c.currency}</span></td>
+                        <td className="px-4 py-3 font-mono text-gray-400 text-xs">{c.vostro_account_id}</td>
+                        <td className="px-4 py-3 font-mono text-gray-400 text-xs">{c.nostro_account_id}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
           </div>
+          ) : cpTab === 'treasury' ? (
+            <TreasuryDashboard />
+          ) : cpTab === 'settlement' ? (
+            <div className="space-y-6 mt-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#121212] border border-white/10 rounded-2xl p-6 shadow-xl gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2"><Icon name="Database" className="w-5 h-5 text-purple-400" /> Settlement Sweep Engine</h2>
+                    <p className="text-gray-400 text-sm mt-1">Manual invocation of the End-of-Day (EOD) Shadow &rarr; Vostro general ledger finalization.</p>
+                  </div>
+                  <button onClick={handleSettle} disabled={settling} className="px-6 py-3 bg-purple-900 border border-purple-500 hover:bg-purple-800 text-white font-semibold rounded-lg shadow-lg flex items-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 shrink-0">
+                    {settling ? <Icon name="RotateCcw" className="w-4 h-4 animate-spin text-purple-200" /> : <Icon name="Zap" className="w-4 h-4 text-purple-200" />}
+                    Collapse Settlement Pipeline
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  {/* Shadow Book */}
+                  <div className="glass rounded-2xl p-6 border border-amber-900/40 relative overflow-hidden bg-[#121212]">
+                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-600/50 to-transparent" />
+                     <h3 className="text-lg font-bold text-gray-200 mb-4 flex items-center gap-2"><Icon name="Clock" className="w-5 h-5 text-amber-500" /> Active Shadow Book (Pending)</h3>
+                     <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead className="text-xs text-gray-500 uppercase bg-[#181818]">
+                            <tr><th className="px-3 py-2">Trace STAN</th><th className="px-3 py-2">Institution Entity</th><th className="px-3 py-2 text-right">Sum ($)</th><th className="px-3 py-2 text-right">Fee ($)</th></tr>
+                          </thead>
+                          <tbody>
+                            {ledgerTxs.filter(tx => tx.status === 'shadow').map(tx => (
+                               <tr key={tx.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                                 <td className="px-3 py-2 font-mono text-xs text-gray-400">{tx.trace_stan}</td>
+                                 <td className="px-3 py-2 font-mono text-xs text-amber-500/80">{tx.target_account_id || tx.institution_id || 'UNKNOWN'}</td>
+                                 <td className="px-3 py-2 text-right font-mono text-gray-300 font-bold">${(tx.principal_amount / 100).toFixed(2)}</td>
+                                 <td className="px-3 py-2 text-right font-mono text-red-400/80">${(tx.fee_amount / 100).toFixed(2)}</td>
+                               </tr>
+                            ))}
+                            {ledgerTxs.filter(tx => tx.status === 'shadow').length === 0 && (
+                               <tr><td colSpan="4" className="text-center py-8 text-gray-500 italic">No shadow holds pending.</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                     </div>
+                  </div>
+
+                  {/* Settled Book */}
+                  <div className="glass rounded-2xl p-6 border border-emerald-900/40 relative overflow-hidden bg-[#121212]">
+                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-600/50 to-transparent" />
+                     <h3 className="text-lg font-bold text-gray-200 mb-4 flex items-center gap-2"><Icon name="CheckCircle2" className="w-5 h-5 text-emerald-500" /> Post-Generation Finality (Settled)</h3>
+                     <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead className="text-xs text-gray-500 uppercase bg-[#181818]">
+                            <tr><th className="px-3 py-2">Trace STAN</th><th className="px-3 py-2">Institution Entity</th><th className="px-3 py-2 text-right">Sum ($)</th><th className="px-3 py-2 text-right">Fee ($)</th></tr>
+                          </thead>
+                          <tbody>
+                            {ledgerTxs.filter(tx => tx.status === 'settled').map(tx => (
+                               <tr key={tx.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                                 <td className="px-3 py-2 font-mono text-xs text-gray-400">{tx.trace_stan}</td>
+                                 <td className="px-3 py-2 font-mono text-xs text-emerald-500/80">{tx.target_account_id || tx.institution_id || 'UNKNOWN'}</td>
+                                 <td className="px-3 py-2 text-right font-mono text-gray-300 font-bold">${(tx.principal_amount / 100).toFixed(2)}</td>
+                                 <td className="px-3 py-2 text-right font-mono text-red-400/80">${(tx.fee_amount / 100).toFixed(2)}</td>
+                               </tr>
+                            ))}
+                            {ledgerTxs.filter(tx => tx.status === 'settled').length === 0 && (
+                               <tr><td colSpan="4" className="text-center py-8 text-gray-500 italic">No settlements executed yet.</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                     </div>
+                  </div>
+                </div>
+            </div>
+          ) : null}
 
           {showModal && (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1279,11 +1689,143 @@
               </div>
             </div>
           )}
+
+          {showSanctionModal && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-[#121212] border border-white/10 w-full max-w-md rounded-2xl p-6 shadow-2xl relative">
+                <button onClick={() => setShowSanctionModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors">
+                  <Icon name="X" className="w-5 h-5" />
+                </button>
+                <h3 className="text-xl font-semibold mb-6 flex items-center gap-2 text-white">
+                  <Icon name="ShieldAlert" className="w-5 h-5 text-gray-400" /> Provision OFAC Sanction
+                </h3>
+                
+                <form onSubmit={handleAddSanction} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Rule Type</label>
+                    <select value={newSanction.rule_type} onChange={e => setNewSanction({...newSanction, rule_type: e.target.value})} className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-gray-200 focus:border-red-500 outline-none transition-colors">
+                      <option>Currency</option><option>Country</option><option>BIN</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Target Value</label>
+                    <input type="text" required value={newSanction.target_value} onChange={e => setNewSanction({...newSanction, target_value: e.target.value})} className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-gray-200 focus:border-red-500 outline-none transition-colors" placeholder="e.g. RUB, IR, 411122" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Enforcement Action</label>
+                    <select value={newSanction.enforcement_action} onChange={e => setNewSanction({...newSanction, enforcement_action: e.target.value})} className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-gray-200 focus:border-red-500 outline-none transition-colors">
+                      <option>Block</option><option>Alert</option>
+                    </select>
+                  </div>
+                  <div className="pt-2">
+                    <button type="submit" className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-red-900 border border-red-500 text-white font-semibold rounded-lg hover:bg-red-800 active:scale-[0.98] transition-all">
+                      <Icon name="Save" className="w-4 h-4" /> Deploy Active Sanction
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {showFeeModal && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-[#121212] border border-white/10 w-full max-w-md rounded-2xl p-6 shadow-2xl relative">
+                <button onClick={() => setShowFeeModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors">
+                  <Icon name="X" className="w-5 h-5" />
+                </button>
+                <h3 className="text-xl font-semibold mb-6 flex items-center gap-2 text-white">
+                  <Icon name="Banknote" className="w-5 h-5 text-gray-400" /> Configure Dynamic Fee Tier
+                </h3>
+                
+                <form onSubmit={handleAddFee} className="space-y-4">
+                  <div className="flex gap-4">
+                    <div className="flex-1">
+                      <label className="block text-xs font-medium text-gray-400 mb-1">MCC Filter</label>
+                      <input type="text" value={newFee.mcc} onChange={e => setNewFee({...newFee, mcc: e.target.value})} className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-gray-200 outline-none" placeholder="All" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs font-medium text-gray-400 mb-1">BIN Path Override</label>
+                      <input type="text" value={newFee.bin_prefix} onChange={e => setNewFee({...newFee, bin_prefix: e.target.value})} className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-gray-200 outline-none" placeholder="All" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Base Interchange %</label>
+                    <input type="number" step="0.001" required value={newFee.base_pct} onChange={e => setNewFee({...newFee, base_pct: e.target.value})} className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-gray-200 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Network Base Cents</label>
+                    <input type="number" required value={newFee.flat_fee_cents} onChange={e => setNewFee({...newFee, flat_fee_cents: e.target.value})} className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-gray-200 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">FX Default Cross Spread %</label>
+                    <input type="number" step="0.001" required value={newFee.fx_markup_pct} onChange={e => setNewFee({...newFee, fx_markup_pct: e.target.value})} className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-gray-200 outline-none" />
+                  </div>
+                  <div className="pt-2">
+                    <button type="submit" className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition-all text-sm">
+                      <Icon name="Save" className="w-4 h-4" /> Save Financial Element
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
 
-    
+function TreasuryDashboard() {
+  const liquidity = usePoll('/api/ledger/liquidity', 2000) ?? [];
+  const institutions = {};
+  
+  for (const row of liquidity) {
+    if (!institutions[row.institution_id]) {
+      institutions[row.institution_id] = { shadow: 0, settled: 0 };
+    }
+    if (row.status === 'shadow') institutions[row.institution_id].shadow = row.total;
+    if (row.status === 'settled') institutions[row.institution_id].settled = row.total;
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
+      {Object.keys(institutions).length === 0 && (
+        <div className="col-span-full flex justify-center items-center h-48 border border-white/5 rounded-2xl bg-[#121212] text-gray-400 text-sm italic">
+          Awaiting Network Settlement Traffic...
+        </div>
+      )}
+      {Object.entries(institutions).map(([inst, data]) => {
+        const total = (data.shadow + data.settled) || 1;
+        const shadowPct = (Math.max(0.05, data.shadow / total)) * 100;
+        const settledPct = (Math.max(0.05, data.settled / total)) * 100;
+        
+        return (
+          <div key={inst} className="glass rounded-2xl p-6 relative overflow-hidden border border-white/10 bg-[#121212]">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-amber-500" />
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-200">{inst.replace('_', ' ')}</h3>
+              <Icon name="Activity" className="w-5 h-5 text-gray-500" />
+            </div>
+            
+            <div className="flex justify-between mb-2">
+              <div className="text-amber-400 flex flex-col">
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-80 mb-1">Shadow Holds</span>
+                <span className="font-mono text-xl font-bold">${(data.shadow / 100).toFixed(2)}</span>
+              </div>
+              <div className="text-emerald-400 flex flex-col items-end">
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-80 mb-1">Settled Liq.</span>
+                <span className="font-mono text-xl font-bold">${(data.settled / 100).toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="w-full h-2 bg-gray-900 rounded-full mt-4 flex overflow-hidden">
+              <div style={{ width: `${shadowPct}%` }} className="bg-amber-500 h-full transition-all duration-1000"></div>
+              <div style={{ width: `${settledPct}%` }} className="bg-emerald-500 h-full transition-all duration-1000"></div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function ObservabilityView() {
   return (
@@ -1312,37 +1854,66 @@ function ObservabilityView() {
 function ChaosLabView() {
   const [hex, setHex] = useState('');
   const [logs, setLogs] = useState([]);
+  const [statuses, setStatuses] = useState({});
   const [dialect, setDialect] = useState('Base24');
   const [mti, setMti] = useState('0200');
   const [bitmap, setBitmap] = useState('B220000000000000');
+  
+  // Custom Scenario Args
+  const [gpVolume, setGpVolume] = useState(10000);
+  const [gpConcurrency, setGpConcurrency] = useState(20);
+  const [secBitmap, setSecBitmap] = useState('');
   const [field2, setField2] = useState('4111111111111111');
   const [field3, setField3] = useState('000000');
   const [field4, setField4] = useState('000000001000');
+  const [srcAcc, setSrcAcc] = useState('11111111');
+  const [destAcc, setDestAcc] = useState('22222222');
   
   // Terminal log ref
-  const logEndRef = useRef(null);
+  const terminalRef = useRef(null);
 
   // Sync to Hex
   useEffect(() => {
     // A primitive mock of ISO hex generation based on fields (for UI demonstration)
-    const mockLen = (mti.length + bitmap.length + field2.length + field3.length + field4.length).toString(16).padStart(4, '0');
-    // For realistic testing, SDET manually mutates the hex. This just creates a baseline when inputs change
-    setHex(mti + bitmap + Array.from(field2).map(c=>c.charCodeAt(0).toString(16)).join('') + field3 + field4);
-  }, [mti, bitmap, field2, field3, field4]);
+    if (dialect === 'UK FPS') {
+      setHex(mti + bitmap + secBitmap + Array.from(srcAcc).map(c=>c.charCodeAt(0).toString(16)).join('') + Array.from(destAcc).map(c=>c.charCodeAt(0).toString(16)).join('') + field3 + field4);
+    } else {
+      setHex(mti + bitmap + secBitmap + Array.from(field2).map(c=>c.charCodeAt(0).toString(16)).join('') + field3 + field4);
+    }
+  }, [mti, bitmap, secBitmap, field2, field3, field4, dialect, srcAcc, destAcc]);
 
   useEffect(() => {
-    // Tail websockets from the Rust Orchestrator via BFF on 3001
-    // Actually the proxy is for HTTP, for websockets it's best to connect directly or through ws proxy
-    // Connecting directly to orchestrator 9000 as per common test-lab topology
-    const ws = new WebSocket('ws://127.0.0.1:9000/stream/logs');
-    ws.onmessage = (e) => {
-      setLogs(prev => [...prev.slice(-99), e.data]);
+    let ws;
+    let reconnectTimer;
+    const connect = () => {
+      ws = new WebSocket('ws://127.0.0.1:9001/stream/logs');
+      ws.onmessage = (e) => setLogs(prev => [...prev.slice(-99), e.data]);
+      ws.onclose = () => { reconnectTimer = setTimeout(connect, 3000); };
     };
-    return () => ws.close();
+    connect();
+    return () => { clearTimeout(reconnectTimer); if (ws) ws.close(); };
   }, []);
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    let intv;
+    const fetchStatuses = async () => {
+      try {
+        const r = await fetch('/sim/chaos/status');
+        if(r.ok) {
+           const s = await r.json();
+           setStatuses(s);
+        }
+      } catch(e){}
+    }
+    fetchStatuses();
+    intv = setInterval(fetchStatuses, 2000);
+    return () => clearInterval(intv);
+  }, []);
+
+  useEffect(() => {
+    if (terminalRef.current) {
+       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
   }, [logs]);
 
   const injectHex = async () => {
@@ -1358,14 +1929,82 @@ function ChaosLabView() {
     }
   };
 
-  const killTarget = async (target) => {
+  const toggleTarget = async (target) => {
+    const isRunning = statuses[target] === 'RUNNING';
     try {
-      await fetch('/sim/chaos/' + target + '/kill', { method: 'POST' });
+      if (isRunning) {
+        await fetch('/sim/chaos/kill/' + target, { method: 'POST' });
+      } else {
+        await fetch('/sim/chaos/start/' + target, { method: 'POST' });
+      }
     } catch(e) {}
   };
 
+  const runScenario = async (id, name) => {
+    try {
+      setLogs(prev => [...prev, `[SCENARIO] Executing ${name}...`]);
+      let body;
+      if (id === 1) {
+        body = JSON.stringify({ volume: Number(gpVolume), concurrency: Number(gpConcurrency) });
+      }
+      await fetch('/sim/chaos/scenario/' + id, { 
+        method: 'POST',
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body
+      });
+      setLogs(prev => [...prev, `[SCENARIO] ${name} deployed.`]);
+    } catch(e) {
+      setLogs(prev => [...prev, `[ERROR] Failed to start ${name}`]);
+    }
+  };
+
   return (
-    <div className="row" style={{ flex: 1, minHeight: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4, paddingBottom: 16 }}>
+      {/* SCENARIOS TRAY */}
+      <div className="card" style={{ flexShrink: 0 }}>
+        <div className="card-header">
+           <span className="card-title">
+             <Icon name="Zap" className="w-4 h-4 text-amber-400" />
+             Pre-Flight Certification Scenarios
+           </span>
+        </div>
+        <div className="card-body" style={{ padding: 14 }}>
+           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+              <div style={{ background: '#02181d', border: '1px solid var(--cyan)', display: 'flex', flexDirection: 'column', padding: 10, borderRadius: 8 }}>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, marginBottom: 4, color: 'var(--cyan)' }}><Icon name="Activity" className="w-4 h-4" />1. Golden Path Stress Test</div>
+                 <span style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400, textAlign: 'left', marginBottom: 8 }}>Baseline simulation.</span>
+                 <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                       <span style={{ fontSize: 8, color: 'var(--muted)', marginBottom: 2 }}>Volume</span>
+                       <input type="number" value={gpVolume} onChange={e => setGpVolume(e.target.value)} style={{ width: '100%', background: 'black', border: '1px solid var(--border2)', color: 'white', fontSize: 10, padding: 4 }} />
+                    </div>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                       <span style={{ fontSize: 8, color: 'var(--muted)', marginBottom: 2 }}>Threads</span>
+                       <input type="number" value={gpConcurrency} onChange={e => setGpConcurrency(e.target.value)} style={{ width: '100%', background: 'black', border: '1px solid var(--border2)', color: 'white', fontSize: 10, padding: 4 }} />
+                    </div>
+                 </div>
+                 <button className="btn btn-primary" onClick={() => runScenario(1, 'Golden Path Stress Test')} style={{ width: '100%', padding: '4px 0', fontSize: 10 }}>Trigger Sequence</button>
+              </div>
+              
+              <button className="btn btn-primary" onClick={() => runScenario(2, 'Egress Blackout')} style={{ background: '#1c100b', border: '1px solid var(--amber)', color: 'var(--amber)', flexDirection: 'column', alignItems: 'flex-start', padding: 10 }}>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, marginBottom: 4 }}><Icon name="PowerOff" className="w-4 h-4" />2. Egress Blackout</div>
+                 <span style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400, textAlign: 'left' }}>Testing Radix route drops & STIP.</span>
+              </button>
+              
+              <button className="btn btn-primary" onClick={() => runScenario(3, 'HSM Latency Trap')} style={{ background: '#18101a', border: '1px solid var(--purple)', color: 'var(--purple)', flexDirection: 'column', alignItems: 'flex-start', padding: 10 }}>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, marginBottom: 4 }}><Icon name="AlertTriangle" className="w-4 h-4" />3. HSM Latency Trap</div>
+                 <span style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400, textAlign: 'left' }}>Testing SEDA Thread Exhaustion.</span>
+              </button>
+              
+              <button className="btn btn-primary" onClick={() => runScenario(4, 'Poison Pill')} style={{ background: '#101a14', border: '1px solid var(--emerald)', color: 'var(--emerald)', flexDirection: 'column', alignItems: 'flex-start', padding: 10 }}>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, marginBottom: 4 }}><Icon name="ShieldAlert" className="w-4 h-4" />4. The Poison Pill</div>
+                 <span style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400, textAlign: 'left' }}>Testing Compliance & Parse Boundary.</span>
+              </button>
+           </div>
+        </div>
+      </div>
+
+      <div className="row" style={{ flex: 1, minHeight: 0 }}>
       {/* Target & Build Card */}
       <div className="card" style={{ flex: '1 1 50%', display: 'flex', flexDirection: 'column' }}>
         <div className="card-header">
@@ -1379,7 +2018,8 @@ function ChaosLabView() {
              <div>
                <div className="field-label">Dialect</div>
                <select value={dialect} onChange={e => setDialect(e.target.value)} style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border2)', color: 'white', padding: '6px' }}>
-                 <option>Base24</option><option>Connex</option>
+                 <option>Base24</option><option>Connex</option><option>Interac</option><option>UK FPS</option>
+                 <option>ISO 1987</option><option>ISO 1993</option><option>ISO 2003</option>
                </select>
              </div>
              <div>
@@ -1388,16 +2028,34 @@ function ChaosLabView() {
              </div>
            </div>
            
-           <div>
-             <div className="field-label">Primary Bitmap (Hex)</div>
-             <input type="text" value={bitmap} onChange={e => setBitmap(e.target.value)} className="mono" />
-           </div>
-
-           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
              <div>
-               <div className="field-label">Field 2 (PAN)</div>
-               <input type="text" value={field2} onChange={e => setField2(e.target.value)} className="mono" />
+               <div className="field-label">Primary Bitmap (Bits 1-64)</div>
+               <input type="text" value={bitmap} onChange={e => setBitmap(e.target.value)} className="mono" />
              </div>
+             <div>
+               <div className="field-label">Secondary Bitmap (Bits 65-128)</div>
+               <input type="text" value={secBitmap} onChange={e => setSecBitmap(e.target.value)} className="mono" placeholder="Empty if no secondary bits" />
+             </div>
+           </div>
+           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+             {dialect === 'UK FPS' ? (
+               <>
+                 <div>
+                   <div className="field-label">Field 102 (Source)</div>
+                   <input type="text" value={srcAcc} onChange={e => setSrcAcc(e.target.value)} className="mono" />
+                 </div>
+                 <div>
+                   <div className="field-label">Field 103 (Dest)</div>
+                   <input type="text" value={destAcc} onChange={e => setDestAcc(e.target.value)} className="mono" />
+                 </div>
+               </>
+             ) : (
+               <div>
+                 <div className="field-label">Field 2 (PAN)</div>
+                 <input type="text" value={field2} onChange={e => setField2(e.target.value)} className="mono" />
+               </div>
+             )}
              <div>
                <div className="field-label">Field 3 (Proc)</div>
                <input type="text" value={field3} onChange={e => setField3(e.target.value)} className="mono" />
@@ -1420,23 +2078,31 @@ function ChaosLabView() {
       {/* Interactive Topology & Logs */}
       <div style={{ flex: '1 1 50%', display: 'flex', flexDirection: 'column', gap: 8 }}>
          <div className="card" style={{ flexShrink: 0 }}>
-            <div className="card-header">
-              <span className="card-title">
+             <div className="card-header">
+               <span className="card-title">
                  <Icon name="Crosshair" className="w-4 h-4 text-red-500" />
                  OS Chaos Targets
-              </span>
-              <span style={{ fontSize: 9, color: 'var(--red)' }}>Click node to KILL</span>
-            </div>
-            <div className="card-body" style={{ padding: 14 }}>
-               <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', height: 80 }}>
-                 {['mock-bank-node', 'payment-daemon', 'mock_hsm'].map(target => (
-                    <div key={target} onClick={() => killTarget(target)} style={{ width: 80, height: 80, borderRadius: '50%', background: '#1a0505', border: '2px dashed var(--red)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'crosshair', flexDirection: 'column', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = '#3f0b0b'} onMouseLeave={e => e.currentTarget.style.background = '#1a0505'}>
-                       <Icon name="PowerOff" className="w-6 h-6 text-red-500 mb-1" />
-                       <span style={{ fontSize: 9, color: 'var(--muted)', textAlign: 'center' }}>{target}</span>
-                    </div>
-                 ))}
-               </div>
-            </div>
+               </span>
+               <span style={{ fontSize: 9, color: 'var(--amber)' }}>Click node to toggle execute/boot</span>
+             </div>
+             <div className="card-body" style={{ padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', height: 80 }}>
+                  {['mock-bank-node', 'payment-daemon', 'mock_hsm'].map(target => {
+                     const run = statuses[target] === 'RUNNING';
+                     const ringColor = run ? 'var(--emerald)' : 'var(--red)';
+                     const ringLight = run ? '#0a1a0f' : '#1a0505';
+                     const ringHover = run ? '#0f3a1d' : '#3f0b0b';
+                     const iconStr = run ? 'Activity' : 'PowerOff';
+                     const iconCol = run ? 'text-emerald-500' : 'text-red-500';
+                     return (
+                     <div key={target} onClick={() => toggleTarget(target)} style={{ width: 80, height: 80, borderRadius: '50%', background: ringLight, border: `2px dashed ${ringColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'crosshair', flexDirection: 'column', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = ringHover} onMouseLeave={e => e.currentTarget.style.background = ringLight}>
+                        <Icon name={iconStr} className={`w-6 h-6 mb-1 ${iconCol}`} />
+                        <span style={{ fontSize: 9, color: 'var(--muted)', textAlign: 'center' }}>{target}</span>
+                     </div>
+                     );
+                  })}
+                </div>
+             </div>
          </div>
 
          <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -1445,19 +2111,22 @@ function ChaosLabView() {
                  <Icon name="Terminal" className="w-4 h-4 text-cyan-500" />
                  Trace Terminal
                </span>
-               <span className="dot-pulse" style={{ color: 'var(--emerald)' }} />
+               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                 <button className="btn btn-sm" onClick={() => setLogs([])} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', cursor: 'crosshair' }} onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'var(--red)'; }} onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderColor = 'var(--border)'; }}>Clear Logs</button>
+                 <span className="dot-pulse" style={{ color: 'var(--emerald)' }} />
+               </div>
             </div>
-            <div className="card-body mono" style={{ background: '#000', padding: 10, fontSize: 10, overflowY: 'auto' }}>
+            <div className="card-body mono" ref={terminalRef} style={{ background: '#000', padding: 10, fontSize: 10, overflowY: 'auto', flex: 1, minHeight: 0 }}>
                {logs.map((log, i) => {
                  let color = 'var(--muted)';
                  if (log.includes('[ERR]')) color = 'var(--red)';
                  if (log.includes('[OUT]')) color = 'var(--text)';
                  return <div key={i} style={{ color, marginBottom: 4 }}>{log}</div>;
                })}
-               <div ref={logEndRef} />
             </div>
          </div>
       </div>
+    </div>
     </div>
   );
 }

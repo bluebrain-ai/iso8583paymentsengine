@@ -39,9 +39,16 @@ async fn trigger_apple_pay() -> &'static str {
         local_date: LocalDate("0414".to_string()),
         rrn: Rrn("000123456789".to_string()),
         response_code: ResponseCode("".to_string()),
-        acquirer_id: Bytes::from_static(b"400123"),
-        pin_block: Bytes::new(),
+        acquirer_id: bytes::Bytes::from_static(b"999999"),
+        pin_block: bytes::Bytes::new(),
         risk_score: 0,
+        requires_instant_clearing: false,
+        domestic_settlement_data: None,
+        source_account: None,
+        destination_account: None,
+        original_data_elements: None,
+        mac_data: None,
+        is_reversal: false,
     };
     
     let dialect = Base24Dialect;

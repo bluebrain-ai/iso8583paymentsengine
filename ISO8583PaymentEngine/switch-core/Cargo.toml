@@ -25,3 +25,5 @@ metrics-exporter-prometheus = "0.12"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 arc-swap = "1.6"
+rusqlite = { version = "0.29", features = ["bundled"] }
+tokio-cron-scheduler = "0.10"

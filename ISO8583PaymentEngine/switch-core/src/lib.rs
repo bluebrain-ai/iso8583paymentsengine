@@ -6,6 +6,9 @@ pub mod telemetry;
 pub mod state;
 pub mod hsm_client;
 pub mod tsp_vault;
+pub mod compliance;
+pub mod ledger_worker;
+pub mod settlement_cron;
 
 use payment_proto::Transaction;
 
@@ -52,6 +55,13 @@ pub fn from_pb(pb: &payment_proto::Transaction) -> payment_proto::canonical::Uni
         acquirer_id: bytes::Bytes::copy_from_slice(pb.acquirer_id.as_bytes()),
         pin_block: bytes::Bytes::copy_from_slice(pb.pin_block.as_bytes()),
         risk_score: 0, // proto Transaction has no risk_score; safe default
+        requires_instant_clearing: false,
+        domestic_settlement_data: None,
+        source_account: None,
+        destination_account: None,
+        original_data_elements: None,
+        mac_data: None,
+        is_reversal: false,
     }
 }
 

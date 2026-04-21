@@ -7,7 +7,8 @@ use tokio::net::TcpListener;
 use tokio_util::codec::Framed;
 use tracing::Instrument;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use iso_dialect::{DialectRouter, Base24Dialect};
+use std::sync::Arc;
+use payment_proto::iso_dialect::{DialectAdapter, Iso8583Message};
 
 static CURRENT_CONNS: AtomicUsize = AtomicUsize::new(0);
 
@@ -26,13 +27,14 @@ impl Drop for ConnectionGuard {
         metrics::gauge!("active_tcp_connections", count as f64);
     }
 }
-pub async fn run_server(listener: TcpListener, core_tx: Sender<TransactionContext>) {
+pub async fn run_server(listener: TcpListener, core_tx: Sender<TransactionContext>, dialect_adapter: Arc<dyn DialectAdapter>) {
     loop {
         match listener.accept().await {
             Ok((socket, addr)) => {
                 socket.set_nodelay(true).unwrap();
                 let tx = core_tx.clone();
                 let span = tracing::info_span!("atm_connection", peer_addr = %addr);
+                let dialect_for_socket = dialect_adapter.clone();
                 
                 tokio::spawn(async move {
                     let _guard = ConnectionGuard::new();
@@ -40,6 +42,8 @@ pub async fn run_server(listener: TcpListener, core_tx: Sender<TransactionContex
                     let (mut sink, mut stream) = framed.split();
                     
                     let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel::<bytes::BytesMut>(10000);
+                    
+                    let dialect_for_responses = dialect_for_socket.clone();
                     
                     tokio::spawn(async move {
                         while let Some(msg) = reply_rx.recv().await {
@@ -56,48 +60,55 @@ pub async fn run_server(listener: TcpListener, core_tx: Sender<TransactionContex
                     while let Some(result) = stream.next().await {
                         match result {
                             Ok(payload) => {
-                                let dialect_decode = DialectRouter::Base24(Base24Dialect);
-                                if let Ok(canonical_tx) = dialect_decode.decode(&payload) {
-                                    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-                                    
-                                    let ctx = TransactionContext {
-                                        transaction: canonical_tx.clone(),
-                                        responder: Some(resp_tx),
-                                    };
-                                    
-                                    let tx_chan = tx.clone();
-                                    let reply_tx_clone = reply_tx.clone();
-                                    let mut drop_rx = drop_notifier_tx.subscribe();
-                                    let panic_tx_chan = tx.clone();
+                                let iso_msg = Iso8583Message { payload: bytes::Bytes::from(payload.to_vec()) };
+                                match dialect_for_socket.parse(&iso_msg) {
+                                    Ok(canonical_tx) => {
+                                        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+                                        
+                                        let ctx = TransactionContext {
+                                            transaction: canonical_tx.clone(),
+                                            responder: Some(resp_tx),
+                                        };
+                                        
+                                        let tx_chan = tx.clone();
+                                        let reply_tx_clone = reply_tx.clone();
+                                        let mut drop_rx = drop_notifier_tx.subscribe();
+                                        let panic_tx_chan = tx.clone();
+                                        let dialect_inner = dialect_for_responses.clone();
 
-                                    tokio::spawn(async move {
-                                        if tx_chan.send(ctx).is_ok() {
-                                            tokio::select! {
-                                                resp_res = resp_rx => {
-                                                    if let Ok(response_tx) = resp_res {
-                                                        let dialect_encode = DialectRouter::Base24(Base24Dialect);
-                                                        if let Ok(encoded) = dialect_encode.encode(&response_tx) {
-                                                            let _ = reply_tx_clone.send(bytes::BytesMut::from(&encoded[..])).await;
+                                        tokio::spawn(async move {
+                                            if tx_chan.send(ctx).is_ok() {
+                                                tokio::select! {
+                                                    resp_res = resp_rx => {
+                                                        if let Ok(response_tx) = resp_res {
+                                                            let iso_out = dialect_inner.build_response(&response_tx);
+                                                            let _ = reply_tx_clone.send(bytes::BytesMut::from(&iso_out.payload[..])).await;
                                                         }
                                                     }
-                                                }
-                                                _ = drop_rx.recv() => {
-                                                    // CRITICAL FIX: The physical TCP socket dropped before the Bank replied!
-                                                    // Trigger an instantaneous 0420 Reversal to the upstream bank immediately.
-                                                    let mut rev_tx = canonical_tx;
-                                                    rev_tx.mti = bytes::Bytes::from_static(b"0420");
-                                                    let rev_ctx = TransactionContext {
-                                                        transaction: rev_tx,
-                                                        responder: None,
-                                                    };
-                                                    let _ = panic_tx_chan.send(rev_ctx);
+                                                    _ = drop_rx.recv() => {
+                                                        // CRITICAL FIX: The physical TCP socket dropped before the Bank replied!
+                                                        // Trigger an instantaneous 0420 Reversal to the upstream bank immediately.
+                                                        let mut rev_tx = canonical_tx;
+                                                        rev_tx.mti = bytes::Bytes::from_static(b"0420");
+                                                        let rev_ctx = TransactionContext {
+                                                            transaction: rev_tx,
+                                                            responder: None,
+                                                        };
+                                                        let _ = panic_tx_chan.send(rev_ctx);
+                                                    }
                                                 }
                                             }
-                                        }
-                                    });
+                                        });
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("ISO-8583 Parse Boundary Exception: Invalid payload structure! Dropping packet. {:?}", e);
+                                    }
                                 }
                             }
-                            Err(_) => break,
+                            Err(e) => {
+                                tracing::error!("Codec Framing Error: Unrecoverable byte-stream corruption. Teardown engaged. {:?}", e);
+                                break;
+                            }
                         }
                     }
                     

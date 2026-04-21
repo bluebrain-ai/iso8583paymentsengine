@@ -18,9 +18,16 @@ fn main() {
         local_date: LocalDate(String::new()),
         rrn: Rrn("F82300C842F4".to_string()),
         response_code: ResponseCode(String::new()),
-        acquirer_id: Bytes::from("123456"),
-        pin_block: Bytes::new(),
+        acquirer_id: bytes::Bytes::new(),
+        pin_block: bytes::Bytes::new(),
         risk_score: 0,
+        requires_instant_clearing: false,
+        domestic_settlement_data: None,
+        source_account: None,
+        destination_account: None,
+        original_data_elements: None,
+        mac_data: None,
+        is_reversal: false,
     };
 
     let dialect = DialectRouter::Base24(iso_dialect::Base24Dialect);

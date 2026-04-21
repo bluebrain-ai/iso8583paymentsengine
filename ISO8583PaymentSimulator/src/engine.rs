@@ -75,9 +75,16 @@ fn generate_transaction(profile: &str, rrn_str: String, network: &str, entry_mod
         local_date: LocalDate(local_date),
         rrn: Rrn(rrn_str),
         response_code: ResponseCode(String::new()),
-        acquirer_id: bytes::Bytes::from_static(b"123456"),
-        pin_block,
-        risk_score: 0, // No risk signal for simulator-generated transactions
+        acquirer_id: bytes::Bytes::from_static(b"411111"),
+        pin_block: bytes::Bytes::new(),
+        risk_score: 0,
+        requires_instant_clearing: false,
+        domestic_settlement_data: None,
+        source_account: None,
+        destination_account: None,
+        original_data_elements: None,
+        mac_data: None,
+        is_reversal: false,
     }
 }
 
@@ -90,6 +97,12 @@ pub struct DistConfig {
     pub apple_pay: f64,
     pub emv: f64,
     pub base24: f64,
+    pub connex: f64,
+    pub interac: f64,
+    pub uk_fps: f64,
+    pub iso_1987: f64,
+    pub iso_1993: f64,
+    pub iso_2003: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -218,7 +231,7 @@ pub async fn run_worker(
     let fwd_nodes_tokenized = vec!["terminal", "ingress", "tsp", "core", "egress", "bank"];
     let rev_ok_nodes = vec!["bank", "egress", "core", "ingress", "terminal"];
     let rev_err_nodes = vec!["core", "ingress", "terminal"];
-    let mut persistent_stream: Option<tokio::net::TcpStream> = None;
+    let mut streams: std::collections::HashMap<u16, tokio::net::TcpStream> = std::collections::HashMap::new();
 
     loop {
         if !engine.status.running.load(Ordering::Relaxed) {
@@ -265,8 +278,18 @@ pub async fn run_worker(
         let rand_dialect: f64 = rand::thread_rng().gen();
         let dialect_name = if rand_dialect < config.base24 {
             "Base24"
-        } else {
+        } else if rand_dialect < config.base24 + config.connex {
             "Connex"
+        } else if rand_dialect < config.base24 + config.connex + config.interac {
+            "Interac"
+        } else if rand_dialect < config.base24 + config.connex + config.interac + config.uk_fps {
+            "UK FPS"
+        } else if rand_dialect < config.base24 + config.connex + config.interac + config.uk_fps + config.iso_1987 {
+            "ISO 1987"
+        } else if rand_dialect < config.base24 + config.connex + config.interac + config.uk_fps + config.iso_1987 + config.iso_1993 {
+            "ISO 1993"
+        } else {
+            "ISO 2003"
         };
 
         let profile = if tx_type == "Decline" { "Decline" } else { "Happy Path" };
@@ -287,17 +310,34 @@ pub async fn run_worker(
         };
         
         // NATIVE ENCODING HERE - utilizing strict canonical bytes mapped via DialectRouter
-        let dialect = if dialect_name == "Base24" {
-            DialectRouter::Base24(iso_dialect::Base24Dialect)
-        } else {
-            DialectRouter::Connex(ConnexDialect)
-        };
-        let encoded = match dialect.encode(&tx_data) {
-            Ok(b) => b,
-            Err(_) => {
-                engine.status.in_flight.fetch_sub(1, Ordering::Relaxed);
-                continue;
+        let encoded = if dialect_name == "Base24" || dialect_name == "Interac" || dialect_name == "UK FPS" {
+            // For now, load generator just maps Interac to Base24 format dynamically internally, or we can use DialectRouter
+            match DialectRouter::Base24(iso_dialect::Base24Dialect).encode(&tx_data) {
+                Ok(b) => b,
+                Err(_) => {
+                    engine.status.in_flight.fetch_sub(1, Ordering::Relaxed);
+                    continue;
+                }
             }
+        } else if dialect_name == "Connex" {
+            match DialectRouter::Connex(ConnexDialect).encode(&tx_data) {
+                Ok(b) => b,
+                Err(_) => {
+                    engine.status.in_flight.fetch_sub(1, Ordering::Relaxed);
+                    continue;
+                }
+            }
+        } else {
+            // New ISO Epoch Versions
+            use payment_proto::iso_dialect::DialectAdapter;
+            let mut dynamic_tx = tx_data.clone();
+            match dialect_name {
+                "ISO 1987" => dynamic_tx.mti = bytes::Bytes::from_static(b"0200"),
+                "ISO 1993" => dynamic_tx.mti = bytes::Bytes::from_static(b"1200"),
+                "ISO 2003" => dynamic_tx.mti = bytes::Bytes::from_static(b"2200"),
+                _ => {}
+            }
+            payment_proto::iso_dialect::StandardDialect.build_response(&dynamic_tx).payload.to_vec().into()
         };
         
         let hex = encoded.iter().map(|b| format!("{:02x}", b)).collect::<String>();
@@ -324,14 +364,21 @@ pub async fn run_worker(
         let mut response_code = String::from("68");
         let encoded_clone = encoded.clone();
         
-        if persistent_stream.is_none() {
-            if let Ok(s) = tokio::net::TcpStream::connect("127.0.0.1:8000").await {
+        let mut target_port = 8000;
+        if dialect_name == "Interac" {
+            target_port = 8001;
+        } else if dialect_name == "UK FPS" {
+            target_port = 8002;
+        }
+
+        if !streams.contains_key(&target_port) {
+            if let Ok(s) = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", target_port)).await {
                 let _ = s.set_nodelay(true);
-                persistent_stream = Some(s);
+                streams.insert(target_port, s);
             }
         }
 
-        if let Some(stream) = persistent_stream.as_mut() {
+        if let Some(stream) = streams.get_mut(&target_port) {
             let len_bytes = (encoded_clone.len() as u16).to_be_bytes();
             let mut payload = Vec::with_capacity(2 + encoded_clone.len());
             payload.extend_from_slice(&len_bytes);
@@ -344,7 +391,16 @@ pub async fn run_worker(
                         let len = u16::from_be_bytes(head) as usize;
                         let mut body = vec![0u8; len];
                         if tokio::io::AsyncReadExt::read_exact(stream, &mut body).await.is_ok() {
-                            match dialect.decode(&body) {
+                            let decode_res = if dialect_name == "Base24" || dialect_name == "Interac" || dialect_name == "UK FPS" {
+                                DialectRouter::Base24(iso_dialect::Base24Dialect).decode(&body).map_err(|_| ())
+                            } else if dialect_name == "Connex" {
+                                DialectRouter::Connex(ConnexDialect).decode(&body).map_err(|_| ())
+                            } else {
+                                use payment_proto::iso_dialect::DialectAdapter;
+                                let msg = payment_proto::iso_dialect::Iso8583Message { payload: bytes::Bytes::copy_from_slice(&body) };
+                                payment_proto::iso_dialect::StandardDialect.parse(&msg).map_err(|_| ())
+                            };
+                            match decode_res {
                                 Ok(res_canonical) => return Some(res_canonical.response_code.0),
                                 Err(_) => return None
                             }
@@ -361,7 +417,7 @@ pub async fn run_worker(
                 }
                 _ => {
                     // TCP Timeout or Socket Error
-                    persistent_stream = None;
+                    streams.remove(&target_port);
                     response_code = "68".to_string();
                 }
             }

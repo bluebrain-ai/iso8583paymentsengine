@@ -69,6 +69,30 @@ function Boot-Service {
 }
 
 
+function Boot-Orchestrated-Service {
+    param (
+        [string]$TaskName,
+        [string]$ServiceName
+    )
+    Write-Host "-> $TaskName" -ForegroundColor Cyan
+    Invoke-RestMethod -Uri "http://127.0.0.1:9001/api/process/start/$ServiceName" -Method Post -ErrorAction SilentlyContinue | Out-Null
+    Start-Sleep -Seconds 2
+    Write-Host "   [OK] Service stabilized in orchestrator." -ForegroundColor Green
+}
+
+if ($All -or $TestOrchestrator) {
+    Boot-Service -TaskName "Starting Rust Test Orchestrator (Port 9001)" -ProcessExe "cargo" -CommandArgs "run" -WorkingDir $TestOrchestratorDir
+    # Wait for Orchestrator to bind and expose network pipe before sending chaos hooks
+    for ($i = 0; $i -lt 10; $i++) {
+        try {
+            Invoke-RestMethod -Uri "http://127.0.0.1:9001/api/process/status" -Method GET -ErrorAction Stop | Out-Null
+            break
+        } catch {
+            Start-Sleep -Seconds 1
+        }
+    }
+}
+
 if ($All -or $ControlPlane) {
     Write-Host "-> Booting Control Plane API (SQLite Initialized Natively)..." -ForegroundColor Cyan
     Boot-Service -TaskName "Booting Control Plane API (Port 3003)" -ProcessExe "cargo" -CommandArgs "run" -WorkingDir $ControlPlaneDir
@@ -85,21 +109,18 @@ if ($All -or $Stip) {
 }
 
 if ($All -or $Mock) {
-    Boot-Service -TaskName "Booting up Mock HSM..." -ProcessExe "cargo" -CommandArgs "run --bin mock_hsm" -WorkingDir $UiDir
-    Boot-Service -TaskName "Booting up External Network Mocks... (Service B: Mock Bank Node)" -ProcessExe "cargo" -CommandArgs "run -p mock-bank-node" -WorkingDir $UiDir
+    Boot-Orchestrated-Service -TaskName "Booting up Mock HSM..." -ServiceName "mock_hsm"
+    Boot-Orchestrated-Service -TaskName "Booting up External Network Mocks... (Service B: Mock Bank Node)" -ServiceName "mock-bank-node"
 }
 
 if ($All -or $Daemon) {
-    Boot-Service -TaskName "Launching main gateway... (Service C: Payment Daemon)" -ProcessExe "cargo" -CommandArgs "run --bin payment-daemon" -WorkingDir $EngineDir
+    Boot-Orchestrated-Service -TaskName "Launching main gateway... (Service C: Payment Daemon)" -ServiceName "payment-daemon"
 }
 
 if ($All -or $Ui) {
     Boot-Service -TaskName "Spinning up the Fast-Load Generator..." -ProcessExe "cargo" -CommandArgs "run --release --bin mock-load-generator" -WorkingDir $UiDir
 }
 
-if ($All -or $TestOrchestrator) {
-    Boot-Service -TaskName "Starting Rust Test Orchestrator (Port 9000)" -ProcessExe "cargo" -CommandArgs "run" -WorkingDir $TestOrchestratorDir
-}
 
 if ($All -or $OpsBff) {
     Boot-Service -TaskName "Starting Node.js BFF Edge Gateway (Port 3001)" -ProcessExe "node" -CommandArgs "server.js" -WorkingDir $OpsBffDir

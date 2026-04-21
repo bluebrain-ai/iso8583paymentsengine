@@ -49,6 +49,11 @@ struct EntryModeDistribution {
 struct DialectDistribution {
     base24: Option<f64>,
     connex: Option<f64>,
+    interac: Option<f64>,
+    uk_fps: Option<f64>,
+    iso_1987: Option<f64>,
+    iso_1993: Option<f64>,
+    iso_2003: Option<f64>,
 }
 
 async fn start_sim(
@@ -71,7 +76,8 @@ async fn start_sim(
         apple_pay: Some(0.3), emv: Some(0.4), pos: Some(0.3)
     });
     let dialects = payload.dialects.unwrap_or(DialectDistribution {
-        base24: Some(0.5), connex: Some(0.5)
+        base24: Some(0.25), connex: Some(0.25), interac: Some(0.25), uk_fps: Some(0.25),
+        iso_1987: Some(0.0), iso_1993: Some(0.0), iso_2003: Some(0.0)
     });
 
     let config = engine::DistConfig {
@@ -81,7 +87,13 @@ async fn start_sim(
         mastercard: nets.mastercard.unwrap_or(0.4),
         apple_pay: modes.apple_pay.unwrap_or(0.3),
         emv: modes.emv.unwrap_or(0.4),
-        base24: dialects.base24.unwrap_or(0.5),
+        base24: dialects.base24.unwrap_or(0.25),
+        connex: dialects.connex.unwrap_or(0.25),
+        interac: dialects.interac.unwrap_or(0.25),
+        uk_fps: dialects.uk_fps.unwrap_or(0.25),
+        iso_1987: dialects.iso_1987.unwrap_or(0.0),
+        iso_1993: dialects.iso_1993.unwrap_or(0.0),
+        iso_2003: dialects.iso_2003.unwrap_or(0.0),
     };
 
     // Reset Engine State

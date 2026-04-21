@@ -14,6 +14,7 @@ pub enum NetworkState {
     HSMPending,
     UpstreamSent,
     Reversed,
+    ReversedPending,
     Completed,
 }
 

@@ -61,4 +61,11 @@ pub struct UniversalPaymentEvent {
     /// Field 48 (Additional Private Data), as injected by the upstream network
     /// (e.g. Visa Advanced Authorization). Default 0 = no risk signal present.
     pub risk_score: u8,
+    pub requires_instant_clearing: bool,
+    pub domestic_settlement_data: Option<String>,
+    pub source_account: Option<String>,
+    pub destination_account: Option<String>,
+    pub original_data_elements: Option<String>,
+    pub mac_data: Option<String>,
+    pub is_reversal: bool,
 }

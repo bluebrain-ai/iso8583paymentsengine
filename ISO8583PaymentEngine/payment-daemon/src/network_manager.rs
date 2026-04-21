@@ -44,9 +44,16 @@ pub async fn start_network_manager(state: Arc<GlobalState>, guard: Arc<dashmap::
                 local_date: LocalDate("1231".to_string()),
                 rrn: Rrn(format!("PING{:08}", probe_id)),
                 response_code: ResponseCode("00".to_string()),
-                acquirer_id: bytes::Bytes::from_static(b"SWITCH"),
+                acquirer_id: bytes::Bytes::from_static(b"NETWORK_MGR"),
                 pin_block: bytes::Bytes::new(),
                 risk_score: 0,
+                requires_instant_clearing: false,
+                domestic_settlement_data: None,
+                source_account: None,
+                destination_account: None,
+                original_data_elements: None,
+                mac_data: None,
+                is_reversal: false,
             };
 
             let ctx = TransactionContext {
